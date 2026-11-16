@@ -1,0 +1,13 @@
+name: microc_qc
+## QC summary, benchmark table and the static HTML dashboard.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - pandas
+  - numpy
+  - pyyaml
+  - tabulate
+  - plotly
+  - cooler        # optional contact-map thumbnails in the dashboard

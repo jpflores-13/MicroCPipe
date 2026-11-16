@@ -1,0 +1,12 @@
+name: microc_cooler
+## .cool / .mcool creation and optional downstream analysis (open2c stack).
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - cooler>=0.9
+  - cooltools>=0.7
+  - pip
+  - pip:
+      - mustache-hic>=1.3.2   # only used when 'loops' is in config analysis

@@ -1,0 +1,6 @@
+name: microc_hic
+## Java runtime for juicer_tools pre (the jar ships in scripts/).
+channels:
+  - conda-forge
+dependencies:
+  - openjdk=11

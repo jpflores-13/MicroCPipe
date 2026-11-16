@@ -1,0 +1,13 @@
+name: microc_align
+## Alignment, pair parsing, dedup, BAM and library complexity.
+## conda-forge + bioconda only; set `conda config --set channel_priority strict`.
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - python=3.10
+  - bwa
+  - pairtools>=1.0
+  - samtools>=1.17
+  - preseq
+  - pairix

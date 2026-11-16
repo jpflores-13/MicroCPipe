@@ -1,0 +1,88 @@
+## NIH Biowulf (SLURM). No account needed. Select it with
+## `export MICROC_PROFILE=profiles/biowulf` in ~/.bashrc.
+## Memory-hungry rules (`hic`) may need raising for deep libraries. The previous pipeline
+## noted that requesting `bigmem` needs a request of 22 GB or more; run `batchlim` to
+## confirm partition names and limits before the first run.
+executor: slurm
+jobs: 100
+latency-wait: 500
+software-deployment-method: conda
+
+default-resources:
+  slurm_partition: norm
+  runtime: 4320
+  mem_mb: 16000
+  nodes: 1
+## SLURM job logs go to <outputDir>/logs_slurm (--slurm-logdir in MicroCPipe.sh)
+
+## Per-rule threads / memory / time (rules carry no resources of their own).
+## The JVM heap for `hic` defaults to 85% of its mem_mb (override with javaMem in the config).
+set-threads:
+  align: 16
+  dedup: 16
+  split: 16
+  sort_bam: 16
+  qc_summary: 1
+  library_complexity: 1
+  benchmark_summary: 1
+  qc_report: 2
+  merge_pairs: 8
+  cool: 1
+  mcool: 8
+  hic: 16
+  analysis_expected: 4
+  analysis_compartments: 4
+  analysis_insulation: 4
+  analysis_loops: 1
+set-resources:
+  align:
+    runtime: 1440
+    mem_mb: 32000
+  dedup:
+    runtime: 720
+    mem_mb: 48000
+  split:
+    runtime: 720
+    mem_mb: 16000
+  sort_bam:
+    runtime: 480
+    mem_mb: 32000
+  qc_summary:
+    runtime: 15
+    mem_mb: 2000
+  library_complexity:
+    runtime: 240
+    mem_mb: 16000
+  benchmark_summary:
+    runtime: 15
+    mem_mb: 2000
+  qc_report:
+    runtime: 30
+    mem_mb: 8000
+  merge_pairs:
+    runtime: 720
+    mem_mb: 32000
+  cool:
+    runtime: 480
+    mem_mb: 32000
+  mcool:
+    runtime: 480
+    mem_mb: 32000
+  hic:
+    runtime: 1440
+    mem_mb: 128000
+  analysis_expected:
+    runtime: 120
+    mem_mb: 16000
+  analysis_compartments:
+    runtime: 120
+    mem_mb: 16000
+  analysis_insulation:
+    runtime: 120
+    mem_mb: 16000
+  analysis_loops:
+    runtime: 720
+    mem_mb: 32000
+
+## hic is the memory hog (juicer_tools pre). Raised from the generic default; was
+## 256 GB heap in the previous pipeline. Lower for small libraries.

@@ -1,0 +1,98 @@
+## MicroCPipe configuration (dietJuicer-style: everything a user normally edits is here).
+## Both workflows (MicroCPipe core and MicroCMerge) read this file.
+
+## ---- Samples ---------------------------------------------------------------
+## Tab-separated. Core needs: Name, Project, Cell_Type, Condition, Bio_Rep,
+## Tech_Rep, Seq_Rep, Read1, Read2, Sequencing_Directory.
+## Merge needs the same metadata columns plus `pairs` (path to a .pairs.gz
+## written by the core workflow) instead of Read1/Read2/Sequencing_Directory.
+samplesheet: 'MicroCSamplesheet.txt'
+
+## Columns joined to form the group ID (= output prefix). Any column left out is
+## merged into the same group, e.g. Seq_Rep omitted => sequencing replicates are
+## aligned separately and then merged + deduplicated together.
+mergeBy: ['Project', 'Cell_Type', 'Bio_Rep', 'Tech_Rep']
+
+## ---- MicroCMerge (combine libraries into one "mega" map) --------------------
+merge:
+  samplesheet: 'MicroCMergeSamplesheet.txt'
+  mergeBy: ['Project', 'Cell_Type', 'Bio_Rep']   # Tech_Rep omitted => technical replicates merge
+
+## ---- Compute site ----------------------------------------------------------
+## Folder in profiles/ with env.sh + config.yaml. Overridden by --profile or
+## $MICROC_PROFILE (set that in ~/.bashrc so the repo stays cluster-neutral).
+hpcProfile: 'profiles/local'
+
+## Where results go. A relative path is placed under $MICROC_OUTPUT_ROOT if set,
+## otherwise under the directory you launch from.
+outputDir: 'output'
+
+## ---- Reference (hg38 by default) -------------------------------------------
+genome: 'hg38'                        # label passed to cooler (--assembly)
+fasta: '/path/to/hg38/BWAIndex/genome.fa'      # BWA-indexed FASTA
+## Two-column chromosome sizes. Keep only the chromosomes you want in the maps
+## (e.g. chr1-22,X,Y,M): every contig listed here becomes a bin set.
+chromSizes: '/path/to/hg38.chrom.sizes'
+
+## ---- Email notifications ---------------------------------------------------
+## One email when the workflow starts, one when it finishes, one if any job fails
+## (not one per job). Prefer `export MICROC_EMAIL=you@university.edu` in ~/.bashrc:
+## it keeps your address out of a shared repo and wins over `email:` below.
+## With neither set, nothing is sent. A failed email never fails the run.
+notify:
+  email: ''
+  events: ['start', 'success', 'error']
+  ## Shell command that sends one message; {subject} and {email} are filled in and
+  ## the message body arrives on stdin. Most clusters have `mail`; otherwise e.g.
+  ## 'sendmail {email}' (put a Subject: line in the body).
+  command: 'mail -s {subject} {email}'
+
+## ---- Output formats --------------------------------------------------------
+## Any subset of: cool, mcool, hic
+outputs: ['cool', 'mcool', 'hic']
+
+base_resolution: 1000                 # bp; resolution of the .cool (must divide every mcool resolution)
+resolutions: [1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000]
+balance: true                         # ICE-balance the .mcool levels (cooler zoomify --balance); the base .cool is not balanced; .hic gets juicer's own norms
+hic_resolutions: [1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000]
+
+## juicer_tools jar used for `pre` (a copy ships in scripts/). Needs Java from envs/microc_hic.yml.
+juicerTools: 'scripts/juicer_tools_1.22.01.jar'
+javaMem: ''                          # JVM heap for `pre` (e.g. '96g'). Empty = 85% of the hic rule's mem_mb from the profile
+
+## ---- Alignment / pairs parsing ---------------------------------------------
+min_mapq: 40                          # pairtools parse --min-mapq
+max_inter_align_gap: 30               # pairtools parse --max-inter-align-gap
+walks_policy: '5unique'               # pairtools parse --walks-policy
+bwa_flags: '-5SP -T0'                 # Micro-C / Hi-C standard (Dovetail recommendation)
+
+## ---- QC --------------------------------------------------------------------
+make_bam: true                        # keep a sorted BAM (needed for preseq)
+library_complexity: true              # preseq lc_extrap (needs make_bam)
+preseq_extrap: 2.1e9
+qc_report: true                       # build output/qc/MicroC_qc_report.html (static, shareable)
+
+## Pass / warn / fail cut-offs used for the dashboard's traffic lights.
+## Percentages are of non-duplicate pairs, except mapped_pct and duplicate_pct (of all
+## read pairs, as in get_qc.py); unique_pairs_million is absolute.
+## "warn" and "fail" are the edges: for higher_is_better metrics a value below
+## `fail` fails and a value below `warn` warns; the reverse for lower_is_better.
+qc_thresholds:
+  mapped_pct:            {direction: higher_is_better, warn: 80,  fail: 60}
+  duplicate_pct:         {direction: lower_is_better,  warn: 40,  fail: 60}
+  cis_pct:               {direction: higher_is_better, warn: 70,  fail: 50}
+  cis_ge1kb_pct:         {direction: higher_is_better, warn: 40,  fail: 25}   # Micro-C: informative long-range cis
+  cis_lt1kb_pct:         {direction: lower_is_better,  warn: 40,  fail: 55}   # dangling/self-ligation-like short pairs
+  cis_ge10kb_pct:        {direction: higher_is_better, warn: 20,  fail: 10}
+  unique_pairs_million:  {direction: higher_is_better, warn: 100, fail: 20}   # absolute, millions
+
+## ---- Optional downstream analysis (off by default) -------------------------
+## Any of: expected (cooltools expected-cis), compartments (eigs-cis),
+## insulation (cooltools insulation), loops (mustache). Run on the .mcool.
+analysis: []
+analysis_resolution:
+  expected: 10000
+  compartments: 100000
+  insulation: 10000
+  loops: 5000
+insulation_windows: [50000, 100000, 200000]

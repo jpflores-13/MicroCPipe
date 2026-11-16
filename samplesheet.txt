@@ -1,2 +1,0 @@
-Name	Project	Cell_Type	Condition	Bio_Rep	Tech_Rep	Seq_Rep	Read1	Read2	Sequencing_Directory
-CantataTest_2M	Cantata	GM12878	Ctrl	1	1	1	MicroC_2M_R1.fastq	MicroC_2M_R2.fastq	/data/reedks/data/CantataExamples/raw/

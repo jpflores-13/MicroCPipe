@@ -1,0 +1,63 @@
+## Run everything on the current machine (workstation or one interactive node):
+## no scheduler. Start with: bash MicroCPipe.sh
+cores: all
+software-deployment-method: conda
+latency-wait: 60
+
+## Global limit: the machine's memory (MB). Lower the `hic` / `dedup` rules'
+## mem_mb below if your machine is smaller, and `javaMem` in the config to match.
+resources:
+  - mem_mb=64000
+
+## Per-rule threads / memory / time (rules carry no resources of their own).
+## The JVM heap for `hic` defaults to 85% of its mem_mb (override with javaMem in the config).
+set-threads:
+  align: 16
+  dedup: 16
+  split: 16
+  sort_bam: 16
+  qc_summary: 1
+  library_complexity: 1
+  benchmark_summary: 1
+  qc_report: 2
+  merge_pairs: 8
+  cool: 1
+  mcool: 8
+  hic: 16
+  analysis_expected: 4
+  analysis_compartments: 4
+  analysis_insulation: 4
+  analysis_loops: 1
+set-resources:
+  align:
+    mem_mb: 32000
+  dedup:
+    mem_mb: 48000
+  split:
+    mem_mb: 16000
+  sort_bam:
+    mem_mb: 32000
+  qc_summary:
+    mem_mb: 2000
+  library_complexity:
+    mem_mb: 16000
+  benchmark_summary:
+    mem_mb: 2000
+  qc_report:
+    mem_mb: 8000
+  merge_pairs:
+    mem_mb: 32000
+  cool:
+    mem_mb: 32000
+  mcool:
+    mem_mb: 32000
+  hic:
+    mem_mb: 60000
+  analysis_expected:
+    mem_mb: 16000
+  analysis_compartments:
+    mem_mb: 16000
+  analysis_insulation:
+    mem_mb: 16000
+  analysis_loops:
+    mem_mb: 32000
