@@ -1,0 +1,147 @@
+# Cluster Reference
+
+## How jobs are submitted
+
+`sbatch MicroCPipe.sh` starts the launcher job (1 CPU, 16 GB, up to 10
+days; it only schedules work). Inside it, Snakemake uses
+`snakemake-executor-plugin-slurm` to submit each rule as its own SLURM job,
+with the threads, memory and time set in the profile. SLURM job logs go to
+`<outputDir>/logs_slurm`. The launcher also carries
+`#SBATCH --mail-type=END,FAIL,TIME_LIMIT_80`; add
+`--mail-user=$MICROC_EMAIL` to the `sbatch` command to direct SLURM's own mail
+(see [Running](running.qmd#email-notifications) for the workflow's emails).
+
+## Compute sites
+
+Everything specific to a compute site lives in one folder under `profiles/`.
+The config and samplesheet are the same on every cluster.
+
+| Folder | For |
+|--------|-----|
+| `profiles/biowulf/` | NIH Biowulf (SLURM, no account, partition `norm`) |
+| `profiles/longleaf/` | UNC Longleaf (SLURM) |
+| `profiles/pioneer/` | Case Western Pioneer (SLURM) |
+| `profiles/slurm-template/` | Any other SLURM cluster: copy and fill in the `<...>` values |
+| `profiles/local/` | One machine with no scheduler (a workstation, or an interactive node) |
+
+Each folder has two files:
+
+- `env.sh`: sourced by `MicroCPipe.sh`, `MicroCMerge.sh` and `unlock.sh`;
+  makes `python3` (>= 3.11) and `conda` (>= 24.7.1) available.
+- `config.yaml`: the Snakemake profile: scheduler, account, partition, and
+  each rule's threads, memory and time.
+
+## Adding a new site
+
+```bash
+cp -r profiles/slurm-template profiles/<cluster>
+nano profiles/<cluster>/config.yaml   # slurm_account, slurm_partition
+nano profiles/<cluster>/env.sh        # module loads, or your Miniforge
+echo 'export MICROC_PROFILE=profiles/<cluster>' >> ~/.bashrc
+source ~/.bashrc
+bash MicroCPipe.sh -n                  # dry run
+sbatch MicroCPipe.sh
+```
+
+In `config.yaml`:
+
+| Part | What to set |
+|------|-------------|
+| `default-resources: slurm_account` | Your SLURM account; delete the line if your cluster has no accounts (`sacctmgr show assoc user=$USER`) |
+| `default-resources: slurm_partition` | A CPU partition (`sinfo -s`) |
+| `set-threads:` | CPUs per rule (`align`, `dedup`, `split`, `sort_bam`, `hic` use 16) |
+| `set-resources:` | `runtime` (minutes) and `mem_mb` per rule |
+| `executor: slurm`, `jobs`, `latency-wait` | Leave unless your scheduler is slow (raise `latency-wait` on slow shared file systems) |
+
+Rules carry no resources of their own: the profile is the only place
+threads, memory and time are set. The rule names are `align`, `dedup`,
+`split`, `sort_bam`, `qc_summary`, `library_complexity`, `benchmark_summary`,
+`qc_report`, `merge_pairs`, `cool`, `mcool`, `hic` and the four `analysis_*`
+rules. `hic` needs the most memory; its Java heap is 85% of its `mem_mb` unless
+`javaMem` is set in the config. `--profile profiles/<cluster>` picks a site for one run.
+
+### The local profile
+
+`profiles/local/config.yaml` has no scheduler. It sets `cores: all` and a
+global memory limit (`resources: mem_mb=...`), and its per-rule `mem_mb`
+values are accounting numbers Snakemake uses to avoid running too many
+heavy jobs at once. Start it with `bash MicroCPipe.sh`. Lower the memory
+numbers to fit your machine (the `hic` heap follows its `mem_mb`), and note that a deep library
+may not fit on a workstation at all.
+
+## Conda version {#conda-version}
+
+Snakemake 8.27 needs conda >= 24.7.1 for its per-rule environments. Some
+clusters' `conda` modules are older, so the profiles use a Miniforge
+install of your own (about 0.5 GB, one time):
+
+```bash
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3-Linux-x86_64.sh -b -p $HOME/miniforge3
+```
+
+`MICROC_CONDA_ROOT` points `env.sh` at it when it is not at
+`$HOME/miniforge3`.
+
+## Per-cluster settings
+
+Two things differ between clusters. Both are set once per cluster and stay
+out of git, so the same config and samplesheet run everywhere:
+
+| Setting | How | Used by |
+|---------|-----|---------|
+| Compute profile | `export MICROC_PROFILE=profiles/<cluster>` in `~/.bashrc` | `MicroCPipe.sh`, `MicroCMerge.sh`, `unlock.sh` |
+| Output location | `export MICROC_OUTPUT_ROOT=/path/to/scratch/MicroCPipe` in `~/.bashrc` | every rule, and the SLURM log folder |
+
+The profile is chosen by `--profile`, then `$MICROC_PROFILE`, then
+`hpcProfile` in the config (default `profiles/local`). A relative `outputDir`
+goes under `$MICROC_OUTPUT_ROOT`, or under the launch folder if it is unset;
+an absolute `outputDir` is used as written. SLURM jobs inherit the
+environment of the shell that ran `sbatch`, so open a new shell (or
+`source ~/.bashrc`) after editing it.
+
+## NIH Biowulf
+
+`profiles/biowulf/` needs no account and uses the `norm` partition.
+
+- **Memory.** `norm` nodes top out at 247 GB. The profile gives `hic`
+  128 GB; deeper libraries may need more. The profile notes that `bigmem`
+  needs a request of 22 GB or higher; limits change, so check `batchlim`.
+  If you raise `hic: mem_mb`, the heap follows (85%) unless you set `javaMem`.
+- **Partition names.** Verify them with `batchlim` before the first run.
+- **conda.** `env.sh` uses your own Miniforge when `MICROC_CONDA_ROOT`
+  points at one (put it under `/data/$USER`, not the small home quota);
+  otherwise it loads the `conda` module, which may be too old for
+  Snakemake 8.27.
+- **Where to run.** Submit the launcher with `sbatch`, not on the login
+  node. Put `MICROC_OUTPUT_ROOT` on `/data/$USER`: output (BAMs, pairs, `.hic`)
+  is large.
+- **Reference.** An iGenomes BWA index is available on Biowulf under
+  `/fdb/igenomes/` (the repository's earlier default used the NCBI hg38
+  index there); verify the exact path with `ls /fdb/igenomes/`.
+
+::: {.callout-warning}
+**Profile status.** The profiles were adapted from sibling pipelines and not
+all have been exercised end to end with MicroCPipe. Dry-run first, and watch
+the first library on any new cluster.
+:::
+
+## UNC Longleaf and Case Western Pioneer
+
+Both use SLURM accounts: edit `slurm_account` in `config.yaml` to yours
+(`sacctmgr show assoc user=$USER`; the shipped value is a lab placeholder).
+Both ship a Miniforge `env.sh` because the cluster modules are older than
+Snakemake needs. On Pioneer, put code and Miniforge in home and heavy output
+on scratch via `MICROC_OUTPUT_ROOT`.
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| `Error running conda info` | conda not on `PATH`: fix the conda line in `profiles/<site>/env.sh` |
+| `hic` killed or Java heap error | Raise `hic: mem_mb` in the profile (the heap is 85% of it unless `javaMem` is set) |
+| A rule ends in `TIMEOUT` | Raise that rule's `runtime:` in the profile, `bash unlock.sh`, resubmit |
+| Jobs on the wrong account or partition | `echo $MICROC_PROFILE`; set it or pass `--profile` |
+| Output in the launch folder, not scratch | `MICROC_OUTPUT_ROOT` not set in the shell that ran `sbatch` |
+| No emails | `echo test \| mail -s test $MICROC_EMAIL`; change `notify: command:` |
+| Launcher `OUT_OF_MEMORY` on first run | Build the environments once on a compute node ([Setup](setup.qmd#conda-environments)) |

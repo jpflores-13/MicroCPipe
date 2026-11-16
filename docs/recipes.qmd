@@ -1,0 +1,149 @@
+# Recipes
+
+Each recipe below is a change to `config/MicroCConfig.yaml` (or, for one, a
+new rule), with what it does and what to watch out for. Every one works with
+the current pipeline. After any change, run `bash MicroCPipe.sh -n` first:
+the dry run lists what Snakemake will redo.
+
+## Only the `.mcool`
+
+You want the multi-resolution matrix and nothing else.
+
+```yaml
+outputs: ['mcool']
+```
+
+The `.mcool` is made from the `.cool`, so the `.cool` is still built (and
+stays in `output/{group}/`, unbalanced: only the `.mcool` levels carry balancing weights); only the `.hic` step, usually the slowest and
+most memory-hungry, is skipped. The QC dashboard and the `.pairs.gz` are
+unaffected. To skip the dashboard, set `qc_report: false`; to skip preseq and
+the BAM, set `library_complexity: false`.
+
+If you already have finished `.cool` and `.hic` files and then change
+`outputs`, Snakemake leaves them alone; it only builds what is missing.
+
+## A different genome (mouse)
+
+Everything genome-specific is in three config keys:
+
+```yaml
+genome: 'mm10'
+fasta: '/path/to/mm10/BWAIndex/genome.fa'
+chromSizes: '/path/to/mm10.chrom.sizes'
+```
+
+- `fasta` must have a BWA index next to it (`bwa index genome.fa`).
+- `chromSizes` lists the chromosomes for the maps (for mouse,
+  `chr1`-`chr19`, `chrX`, `chrY`, optionally `chrM`) with the **same
+  names as the FASTA**. Trim it: every contig becomes part of the maps.
+- `genome` is just a label stored in the `.cool` files.
+
+Nothing else changes. Remember that the `qc_thresholds` are defaults and
+`unique_pairs_million` in particular reflects a human-sized genome; adjust
+them for the genome and depth you are working with. To run human and mouse
+side by side, keep one config per genome and launch with `--configfile`
+and a different `outputDir` each:
+
+```bash
+sbatch MicroCPipe.sh --configfile config/mouse.yaml
+```
+
+## Add a downstream analysis
+
+**Built-in.** List any of `expected`, `compartments`, `insulation`, `loops`:
+
+```yaml
+analysis: ['expected', 'insulation']
+analysis_resolution:
+  expected: 10000
+  compartments: 100000
+  insulation: 10000
+  loops: 5000
+insulation_windows: [50000, 100000, 200000]
+```
+
+Each runs on the `.mcool` at the resolution you set (it must be in
+`resolutions`) and writes into `output/{group}/analysis/`, beside a
+`.done` marker Snakemake tracks. They use the balanced weights, so keep
+`balance: true`. `loops` runs `mustache`, which is installed from pip
+inside `envs/microc_cooler.yml`. Already finished groups only get the new
+analysis; nothing is realigned.
+
+**Your own.** The analysis rules live in `workflows/rules/formats.smk`.
+A new analysis called `myanalysis` needs a rule that makes
+`{group}/analysis/{group}_myanalysis.done`, then `analysis: ['myanalysis']`:
+
+```python
+rule analysis_myanalysis:
+    input:  mcool = _mcool
+    output: tsv = OUT + "/{group}/analysis/{group}_myanalysis.tsv",
+            done = touch(OUT + "/{group}/analysis/{group}_myanalysis.done")
+    log:    OUT + "/{group}/logs/{group}_myanalysis.log"
+    threads: 2
+    conda:  ENVS + "/microc_cooler.yml"
+    shell:  "python scripts/my_analysis.py {input.mcool} {output.tsv} 2> {log}"
+```
+
+Give the rule a `set-resources` entry in each profile you use (otherwise it
+gets the profile's defaults), and add any package it needs to the
+environment file. Because `format_targets()` turns every name in `analysis`
+into a `.done` target, no other file needs editing. Or skip the pipeline and
+analyse the `.mcool` directly (see the [Vignette](vignette.qmd#inspecting-the-outputs)).
+
+## Change the resolutions
+
+```yaml
+base_resolution: 1000
+resolutions: [1000, 5000, 10000, 50000, 100000, 1000000]
+hic_resolutions: [5000, 10000, 100000, 1000000]
+```
+
+- Every `resolutions` entry must be a multiple of `base_resolution`;
+  otherwise the run stops with an error. The base is added to the list
+  automatically.
+- `hic_resolutions` is separate, so the `.hic` can have fewer.
+- A finer base (say 500) makes the `.cool` larger and `cool` / `mcool`
+  slower; every coarser resolution is a sum of base bins, so base must
+  divide them all.
+- Changing resolutions reruns `mcool` and `hic` for every group. If
+  alignment is finished, only the map steps are redone.
+- If you use `analysis`, make its `analysis_resolution` a value in
+  `resolutions`.
+
+## When the `hic` step runs out of memory
+
+`hic` runs `juicer_tools pre`, a Java program, and it is the heaviest rule:
+it holds a lot of the contacts in memory. The Java heap follows the job's
+memory:
+
+| Setting | Where | Default |
+|---------|-------|---------|
+| Job memory | `hic: mem_mb` in `profiles/<site>/config.yaml` | 128000 on the SLURM profiles, 60000 on `local` |
+| JVM heap | `javaMem` in `config/MicroCConfig.yaml` | empty = 85% of `hic: mem_mb` |
+
+Leave `javaMem` empty and the heap is set to 85% of the job memory, leaving
+room for Java's own overhead. If you set `javaMem` yourself (e.g. `'96g'`), keep
+it below `mem_mb`.
+
+1. **Recognise it.** The job ends with SLURM state `OUT_OF_MEMORY`, or
+   `output/{group}/logs/{group}_hic.log` shows a Java `OutOfMemoryError`.
+2. **Raise the job memory** for that rule; the heap follows:
+
+    ```yaml
+    # profiles/<site>/config.yaml
+    set-resources:
+      hic:
+        mem_mb: 230000
+    ```
+
+   Check the partition's node memory first (`sinfo -o "%P %m"`; see
+   [Biowulf](cluster.qmd#nih-biowulf) for its limits).
+3. **Unlock and rerun:** `bash unlock.sh`, then `sbatch MicroCPipe.sh`.
+4. **Shrink the job** if you cannot get more memory: drop the finest
+   entries of `hic_resolutions` (the `.mcool` keeps them), or skip `.hic`
+   with `outputs: ['cool', 'mcool']`.
+5. **Learn from the last run.** `output/benchmarking.tsv` and the dashboard's
+   Runtime & memory table list each rule's peak memory (`max_rss`).
+
+On `profiles/local` the default is 85% of 60000 MB; lower `hic: mem_mb` if your
+machine has less memory than that.

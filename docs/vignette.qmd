@@ -1,0 +1,282 @@
+---
+title: "Vignette: From FASTQ to Contact Maps"
+subtitle: "A step-by-step walkthrough of MicroCPipe, with a worked example"
+format:
+  html:
+    toc: true
+    toc-depth: 3
+    code-fold: false
+    code-copy: true
+execute:
+  eval: false
+---
+
+::: {.callout-tip appearance="simple"}
+### Quick start
+
+If someone has already set up MicroCPipe on your cluster and you just want a
+run, these are the steps. Each one is explained in the sections below.
+
+1. Clone the repository and `cd` into it ([Setup](#one-time-setup)).
+2. Describe your FASTQ files in `MicroCSamplesheet.txt`
+   ([Samplesheet](#describe-your-sequencing-runs)).
+3. Point `config/MicroCConfig.yaml` at your reference
+   ([Config](#point-the-config-at-your-reference)).
+4. Set `MICROC_PROFILE` and `MICROC_OUTPUT_ROOT` in `~/.bashrc`
+   ([Compute site](#tell-microcpipe-which-cluster-you-are-on)).
+5. Dry run: `bash MicroCPipe.sh -n` ([Dry run](#dry-run)).
+6. Run: `sbatch MicroCPipe.sh`, then open `output/qc/MicroC_qc_report.html`
+   ([Run](#run-it), [QC](#read-the-qc-dashboard)).
+7. Load the maps from `output/<group>/` ([Inspecting](#inspecting-the-outputs)).
+:::
+
+This page is a single walkthrough. The other chapters are reference pages;
+this one takes you from an empty directory to a finished run and a look at
+the maps, in the order you would do things. **Every code block here is
+illustrative and is not executed when the book is built: no output shown on
+this page comes from a real run, and the paths and names are placeholders.**
+
+## The example
+
+You have one Micro-C library from a human cell line (here called `GM12878`),
+sequenced once, with the FASTQ files `MicroC_2M_R1.fastq.gz` and
+`MicroC_2M_R2.fastq.gz` in a folder on your cluster. You want the contact
+maps in cooler and Juicebox formats and a check that the library is good.
+
+## One-time setup
+
+```bash
+git clone https://github.com/jpflores-13/MicroCPipe.git
+cd MicroCPipe
+```
+
+You need `python3` >= 3.11 and `conda` >= 24.7.1 on the cluster, a BWA-indexed
+FASTA of the reference and a chromosome sizes file ([Setup](setup.qmd)).
+
+## Describe your sequencing runs
+
+`MicroCSamplesheet.txt` is tab-separated, with one row per sequencing run:
+
+```
+Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  Seq_Rep  Read1                  Read2                  Sequencing_Directory
+GM12878_ctrl_1_1_1  Example  GM12878    Ctrl       1        1         1        MicroC_2M_R1.fastq.gz  MicroC_2M_R2.fastq.gz  /path/to/raw/
+```
+
+With the default `mergeBy` (`Project`, `Cell_Type`, `Bio_Rep`, `Tech_Rep`),
+the group for this row is `Example_GM12878_1_1`, and all outputs will be in
+`output/Example_GM12878_1_1/`. If you sequenced the same library a second
+time, add a second row with `Seq_Rep` 2: both rows share the group, are
+aligned separately, then merged and deduplicated together.
+
+## Point the config at your reference
+
+In `config/MicroCConfig.yaml`:
+
+```yaml
+genome: 'hg38'
+fasta: '/path/to/hg38/BWAIndex/genome.fa'
+chromSizes: '/path/to/hg38.chrom.sizes'
+outputs: ['cool', 'mcool', 'hic']
+```
+
+`chromSizes` should list only the chromosomes you want in the maps, with
+the same names as the FASTA. Leave the rest at their defaults for a first run.
+
+## Tell MicroCPipe which cluster you are on
+
+Once per cluster, in `~/.bashrc`:
+
+```bash
+export MICROC_PROFILE=profiles/biowulf          # or longleaf, pioneer, local, your own
+export MICROC_OUTPUT_ROOT=/data/$USER/MicroCPipe  # big files go here
+```
+
+Then `source ~/.bashrc`, and open `profiles/<site>/config.yaml` to check the
+account and partition are yours ([Cluster Reference](cluster.qmd)).
+
+## Dry run
+
+Before submitting anything, list what would run:
+
+```bash
+bash MicroCPipe.sh -n
+```
+
+This reads the samplesheet and config, checks that the FASTQ files exist, and
+prints each job. For this example, the workflow graph implies one job per
+rule, twelve in all (including the final `all`):
+
+| Rule | Jobs |
+|------|------|
+| `align`, `dedup`, `split`, `sort_bam` | 1 each |
+| `qc_summary`, `library_complexity` | 1 each |
+| `cool`, `mcool`, `hic` | 1 each |
+| `benchmark_summary`, `qc_report`, `all` | 1 each |
+
+(A second sequencing row would make it two `align` jobs and still one of
+everything else.) If the dry run stops with a missing-column error, a
+`MissingInputException` or a resolution error, fix it now: see the
+troubleshooting tables in [Setup](setup.qmd).
+
+The first run builds four conda environments. If you want to do that on a
+compute node rather than inside the launcher job:
+
+```bash
+srun -N 1 -n 1 -c 4 --mem=16g -t 3:00:00 --pty /bin/bash
+bash MicroCPipe.sh --conda-create-envs-only
+exit
+```
+
+## Run it
+
+```bash
+sbatch MicroCPipe.sh
+```
+
+Each rule is submitted as its own SLURM job. Watch them with
+`squeue -u $USER`; the launcher's own log is `MicroCPipe-<jobid>.out` and
+each job's log is in `$MICROC_OUTPUT_ROOT/output/<group>/logs/`. If you set
+`MICROC_EMAIL` you also get mail when it starts, finishes or fails
+([Running](running.qmd#email-notifications)).
+
+If something fails, read that job's log, fix the cause (often memory or
+time in the profile), then:
+
+```bash
+bash unlock.sh
+sbatch MicroCPipe.sh
+```
+
+Finished jobs are kept ([Running](running.qmd#resuming-and-re-running)).
+
+## Read the QC dashboard
+
+Copy `output/qc/MicroC_qc_report.html` to your computer (or open it where you
+are) and look at, in this order:
+
+1. The **Summary** table: any red or amber cells?
+2. **Library composition**: how is the library split into unique, unmapped
+   and duplicate pairs, cis and trans, short and long cis?
+3. **P(s)** and **strand orientation**: smooth long-range decay, and
+   orientations that settle toward balanced with distance.
+4. **Library complexity**: is more depth worth it?
+
+[Reading the QC dashboard](qc.qmd) explains each panel and what failure looks
+like. Decide here whether the library is worth analysing before you spend
+time on the maps.
+
+## Inspecting the outputs
+
+```
+output/Example_GM12878_1_1/
+├── Example_GM12878_1_1.pairs.gz
+├── Example_GM12878_1_1.cool
+├── Example_GM12878_1_1.mcool
+├── Example_GM12878_1_1.hic
+├── Example_GM12878_1_1_dedup_stats.txt
+├── Example_GM12878_1_1_mapped.PT.bam(.bai)
+├── Example_GM12878_1_1_qc_summary.txt
+└── Example_GM12878_1_1_libraryComplexity.txt
+```
+
+### With the cooler command line
+
+```bash
+M=output/Example_GM12878_1_1/Example_GM12878_1_1.mcool
+cooler ls $M                                   # lists the resolutions
+cooler info $M::resolutions/10000               # bins, pixels, chromosome sizes
+cooler dump --join -r chr1:1,000,000-3,000,000 $M::resolutions/10000 | head
+```
+
+### In Python
+
+```python
+import cooler, matplotlib.pyplot as plt
+from matplotlib.colors import LogNorm
+
+clr = cooler.Cooler("output/Example_GM12878_1_1/Example_GM12878_1_1.mcool::resolutions/10000")
+region = "chr1:1,000,000-3,000,000"
+mat = clr.matrix(balance=True).fetch(region)     # needs an .mcool level (the base .cool has no weights); balance=False for raw counts
+plt.imshow(mat, cmap="YlOrRd", norm=LogNorm())
+plt.colorbar(label="balanced contact frequency")
+plt.show()
+```
+
+Expected contact frequency (the P(s) curve) from the same file, using
+cooltools:
+
+```python
+import cooltools
+exp = cooltools.expected_cis(clr, nproc=4)       # one row per distance bin and chromosome arm
+```
+
+The unique, deduplicated read pairs (pair types UU, UR, RU) are a plain table if you want something else:
+
+```python
+import pandas as pd
+cols = ["readID", "chrom1", "pos1", "chrom2", "pos2", "strand1", "strand2", "pair_type"]
+pairs = pd.read_csv("output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz",
+                    sep="\t", comment="#", header=None, usecols=range(8), names=cols)
+```
+
+### In R
+
+With Bioconductor's HiCExperiment package (`.cool` / `.mcool`):
+
+```r
+library(HiCExperiment)
+cf  <- CoolFile("output/Example_GM12878_1_1/Example_GM12878_1_1.mcool", resolution = 10000)
+hic <- import(cf, focus = "chr1:1000000-3000000")
+plotMatrix(hic, use.scores = "balanced")
+```
+
+Or read the `.hic` with strawr:
+
+```r
+library(strawr)
+x <- straw("KR", "output/Example_GM12878_1_1/Example_GM12878_1_1.hic",
+           "chr1", "chr1", "BP", 10000)
+head(x)   # columns x, y, counts
+```
+
+(`straw` needs a normalisation name the file contains; `"NONE"` always
+works.)
+
+### In Juicebox
+
+Open Juicebox, choose **File > Open > Local** and select
+`Example_GM12878_1_1.hic`. Pick a normalisation and resolution from the menus.
+
+## Combining libraries
+
+Suppose you made a second technical replicate (`Tech_Rep` 2) and ran it
+through the Core workflow too. To merge the two into one deeper map, list
+their pairs in `MicroCMergeSamplesheet.txt`:
+
+```
+Name              Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  pairs
+GM12878_ctrl_1_1  Example  GM12878    Ctrl       1        1         output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz
+GM12878_ctrl_1_2  Example  GM12878    Ctrl       1        2         output/Example_GM12878_1_2/Example_GM12878_1_2.pairs.gz
+```
+
+With the default `merge: mergeBy` (no `Tech_Rep`), both rows form one group,
+`merged_Example_GM12878_1` (the Merge workflow prefixes its groups with
+`merged_` so they never collide with Core outputs):
+
+```bash
+bash MicroCMerge.sh -n
+sbatch MicroCMerge.sh
+```
+
+The merged maps are written to `output/merged_Example_GM12878_1/` as
+`merged_Example_GM12878_1.cool`, `.mcool` and `.hic`, built from
+`merged_Example_GM12878_1_merged.pairs.gz`. Check the individual libraries in the
+dashboard first: merging a failed library into a good one makes the deeper map
+worse, not better.
+
+## Where to go from here
+
+- Turn on built-in downstream analysis (`analysis:`), or add your own rule:
+  [Recipes](recipes.qmd#add-a-downstream-analysis).
+- A different genome or resolutions: [Recipes](recipes.qmd).
+- Every config key: [Configuration](configuration.qmd).

@@ -1,0 +1,161 @@
+# From Reads to Maps
+
+This chapter explains, without assuming you know Snakemake, what Micro-C
+measures, how it differs from Hi-C, and what the pipeline does to your reads
+on the way to a contact map. Nothing here is needed to run the pipeline, but
+it makes the QC dashboard and the config keys much easier to follow.
+
+## What Micro-C measures
+
+Every cell packs about two metres of DNA into a nucleus. The way the DNA is
+folded decides which regions end up close together in 3D, and the folding
+is not random: it forms loops, domains and compartments. **Chromosome
+conformation capture** methods (3C, Hi-C, Micro-C) read out the folding by
+asking which pieces of DNA were touching.
+
+The recipe is the same in all of them:
+
+1. **Crosslink** the cells, so DNA that is close together in 3D is glued
+   together.
+2. **Cut** the chromatin into fragments.
+3. **Ligate** the ends of fragments that are glued together, making a
+   chimeric DNA molecule that joins two pieces from different places in the
+   genome.
+4. **Sequence** both ends of those molecules (paired-end reads). One read
+   comes from each side of the junction.
+
+Each read pair is therefore one observed contact: read 1 says where one
+piece came from, read 2 says where the other came from. A contact map is
+what you get by counting, for every pair of genomic bins, how many read
+pairs connect them.
+
+## Micro-C versus Hi-C
+
+The difference is step 2. Hi-C cuts with a **restriction enzyme**, which
+cuts only where its recognition site happens to be, so the finest scale you
+can resolve is set by how far apart those sites are. Micro-C cuts with
+**MNase** (micrococcal nuclease), which digests the DNA between nucleosomes
+and leaves single nucleosomes behind. Fragments are therefore about a
+nucleosome long, and the cut positions are spread across the genome rather
+than tied to a sequence motif. The practical consequences:
+
+| | Hi-C | Micro-C |
+|---|------|---------|
+| Cutting enzyme | Restriction enzyme (site-specific) | MNase (nucleosome-spaced) |
+| Fragments | Sized by restriction-site spacing | About one nucleosome |
+| Typical bin size for maps | Kilobases | Down to the nucleosome scale; MicroCPipe builds 1 kb by default |
+| Very short-range contacts | Mostly artefacts | Carry real information about local chromatin (nucleosome-scale structure) |
+
+Two things in the pipeline come from this. First, the QC dashboard looks at
+contacts shorter than 1 kb separately from longer ones, because in Micro-C
+the short-range pairs are a mix of real nucleosome-scale signal and
+uninformative ligation products, and their share tells you something about
+the library. Second, the contact-probability curve P(s) is read at short
+distances too, where Micro-C shows nucleosome-scale features (a shoulder)
+that restriction-enzyme Hi-C cannot resolve. Both are covered in
+[Reading the QC dashboard](qc.qmd).
+
+## What the pipeline does with the reads
+
+### 1. Alignment (`align`)
+
+`bwa mem` aligns each read to the reference genome. Micro-C reads are
+chimeric: the two halves of a ligation junction can both lie in a single
+read, so the standard options are `-5SP -T0`:
+
+- `-5` reports the 5'-most piece of a split read as the primary alignment,
+- `-S` and `-P` switch off mate rescue and paired-end rescoring, which
+  assume the two reads of a pair are close together (they are not),
+- `-T0` keeps alignments whatever their score; filtering happens later.
+
+These are the options Dovetail recommends and the default of `bwa_flags` in
+the config.
+
+### 2. Pair parsing (`align`, continued)
+
+`pairtools parse` reads the alignments and decides, for each read pair,
+what the two sides of the contact are. It labels every pair with a
+two-letter **pair type**: for example **UU** (both sides uniquely mapped),
+**UR** (one side rescued), **MU** / **MM** (a side is multi-mapped), **NU**
+/ **NN** (a side is unmapped), **WW** (a walk: more than one junction in
+one read) and, later, **DD** (duplicate). Three config keys control it:
+
+- `min_mapq` (default 40): a side with lower mapping quality counts as
+  ambiguous,
+- `walks_policy` (default `5unique`): when a read contains several
+  junctions, keep the 5'-most unique alignment on each side,
+- `max_inter_align_gap` (default 30 bp): how much unaligned sequence is
+  tolerated between the pieces of a chimeric read.
+
+`pairtools sort` then orders the pairs by position, and the result is a
+temporary file per sequencing run.
+
+### 3. Merge and deduplicate (`dedup`)
+
+A library sequenced on several lanes has several runs. They are merged
+(`pairtools merge`) and then **deduplicated**: PCR amplifies each ligation
+product many times, and the copies would be counted as separate contacts.
+`pairtools dedup` finds read pairs with the same positions on both sides
+and marks them as duplicates (`--mark-dups`, pair type DD). It also writes a
+statistics file (`{group}_dedup_stats.txt`) that is the main input to the
+QC dashboard. Merging before deduplicating matters: a duplicate in lane 1
+and lane 2 is still the same molecule.
+
+### 4. Split (`split`, `sort_bam`)
+
+`pairtools split` writes the pairs as a `.pairs.gz` file (a plain-text
+table of one contact per line, the format the map builders read) and the
+alignments as a BAM. The BAM is sorted and indexed, and is only used for
+`preseq`'s estimate of library complexity.
+
+### 5. Contact maps (`cool`, `mcool`, `hic`)
+
+- **`cooler`** bins the contacts into a sparse matrix. `cool` writes one
+  matrix at `base_resolution`; `mcool` (via `cooler zoomify`) adds coarser
+  resolutions that are sums of the base bins, which is why every
+  resolution must be a multiple of the base. With `balance: true`, each
+  matrix gets **ICE** balancing weights (an iterative correction that
+  removes per-bin biases such as mappability, so that every bin has the
+  same total).
+- **`juicer_tools pre`** writes a `.hic` file, the format Juicebox opens,
+  with its own normalisations.
+
+### 6. QC and (optionally) downstream analysis
+
+`qc_summary` turns the dedup statistics into a short table, `preseq`
+estimates how much new information deeper sequencing would add, and
+`qc_report` combines everything into the dashboard. If you list entries in
+`analysis:`, the `.mcool` is also passed to **cooltools** (expected
+contact frequency, compartments, insulation) or **mustache** (loops).
+
+## Why pairtools and cooler
+
+MicroCPipe uses the Open2C tools for the same reason most modern Hi-C and
+Micro-C pipelines do:
+
+- **Open, documented formats.** `.pairs` is the 4DN consortium's
+  plain-text contact format and `.cool` is an HDF5-based matrix format.
+  Both can be read from Python, R, the command line and genome browsers,
+  so your data is not locked into one program.
+- **Scalable.** Pairs are streamed and sorted on disk, and cooler stores
+  only non-zero bins, so a deep 1 kb map is a manageable file.
+- **One set of pairs, many maps.** Because the deduplicated pairs are kept,
+  you can re-bin or re-balance without redoing the alignment, and the
+  Merge workflow can combine libraries at the pairs level.
+
+## Groups, runs and the Merge workflow
+
+A sequencing **run** is one row of the samplesheet (one pair of FASTQ
+files). A **group** is a set of rows that become one library, decided by
+the `mergeBy` columns. By default rows that agree on `Project`,
+`Cell_Type`, `Bio_Rep` and `Tech_Rep` are one group, so two sequencing
+replicates (`Seq_Rep` 1 and 2) of the same library are aligned separately,
+then merged and deduplicated together. Add `Seq_Rep` to `mergeBy` to keep
+them apart.
+
+The **Merge workflow** works one level up. It takes the finished
+`.pairs.gz` files of several libraries (for example technical replicates)
+and merges them into a single deeper "mega" map, with its own `mergeBy`
+(by default leaving out `Tech_Rep`). It does not re-align anything. The
+inputs were deduplicated within each library, and merging does not
+deduplicate between libraries.

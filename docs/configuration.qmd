@@ -1,0 +1,164 @@
+# Configuration
+
+## How configuration works
+
+MicroCPipe is driven by two kinds of files, as in dietJuicer:
+
+| File | Purpose |
+|------|---------|
+| `MicroCSamplesheet.txt` (Core), `MicroCMergeSamplesheet.txt` (Merge) | One row per sequencing run / per library to merge |
+| `config/MicroCConfig.yaml` | Everything else: reference, formats, alignment parameters, QC cut-offs |
+
+Both workflows read the same config. `--configfile other.yaml` on a launcher
+replaces it (the file must be complete). The shipped file is commented line
+by line; this chapter is the full reference. No path, name or parameter is
+written into the Snakefiles.
+
+```yaml
+samplesheet: 'MicroCSamplesheet.txt'
+mergeBy: ['Project', 'Cell_Type', 'Bio_Rep', 'Tech_Rep']
+merge: {samplesheet: 'MicroCMergeSamplesheet.txt', mergeBy: ['Project', 'Cell_Type', 'Bio_Rep']}
+hpcProfile: 'profiles/local'
+outputDir: 'output'
+genome: 'hg38'
+fasta: '/path/to/hg38/BWAIndex/genome.fa'
+chromSizes: '/path/to/hg38.chrom.sizes'
+notify: {email: '', events: ['start', 'success', 'error'], command: 'mail -s {subject} {email}'}
+outputs: ['cool', 'mcool', 'hic']
+base_resolution: 1000
+resolutions: [1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000]
+balance: true
+hic_resolutions: [1000, 2000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, 1000000]
+juicerTools: 'scripts/juicer_tools_1.22.01.jar'
+javaMem: ''
+min_mapq: 40
+max_inter_align_gap: 30
+walks_policy: '5unique'
+bwa_flags: '-5SP -T0'
+make_bam: true
+library_complexity: true
+preseq_extrap: 2.1e9
+qc_report: true
+qc_thresholds: {...}
+analysis: []
+analysis_resolution: {expected: 10000, compartments: 100000, insulation: 10000, loops: 5000}
+insulation_windows: [50000, 100000, 200000]
+```
+
+## Samples
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `samplesheet` | `MicroCSamplesheet.txt` | Core samplesheet. Required columns: `Name`, `Read1`, `Read2`, `Sequencing_Directory`, `Seq_Rep`, and every `mergeBy` column |
+| `mergeBy` | `['Project', 'Cell_Type', 'Bio_Rep', 'Tech_Rep']` | Columns joined with `_` to name each group (the output prefix). A column left out is merged into the same group: with `Seq_Rep` omitted, sequencing replicates are aligned separately and then merged and deduplicated together |
+| `merge.samplesheet` | `MicroCMergeSamplesheet.txt` | Merge samplesheet. Required columns: `pairs` and every `merge.mergeBy` column |
+| `merge.mergeBy` | `['Project', 'Cell_Type', 'Bio_Rep']` | Grouping for the Merge workflow; with `Tech_Rep` omitted, technical replicates merge |
+
+Within a group, Core numbers the rows `run1`, `run2`, ... to give each
+alignment job its own ID. In the Merge sheet, repeated `pairs` paths within
+a group are used once.
+
+## Compute site and location
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `hpcProfile` | `profiles/local` | Profile folder (`env.sh` + `config.yaml`). Overridden by `--profile`, then `$MICROC_PROFILE` |
+| `outputDir` | `output` | Where results go. A relative path is placed under `$MICROC_OUTPUT_ROOT` when set, otherwise under the directory you launch from; an absolute path is used as written |
+
+## Reference
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `genome` | `hg38` | Assembly label stored in the `.cool` (`cooler cload --assembly`). It does not select a reference |
+| `fasta` | placeholder path | BWA-indexed FASTA for `bwa mem` |
+| `chromSizes` | placeholder path | Two columns (name, length). Used by `pairtools parse` (`--chroms-path`), `cooler` (the bins) and `juicer_tools pre`. Every contig listed becomes part of the maps; chromosome names must match the FASTA |
+
+## Email notifications
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `notify.email` | `''` | Address. `$MICROC_EMAIL` wins if set. With neither, nothing is sent |
+| `notify.events` | `['start', 'success', 'error']` | Which events send a message. One message per event, never one per job |
+| `notify.command` | `mail -s {subject} {email}` | Shell command that sends one message; `{subject}` and `{email}` are filled in (shell-quoted) and the body arrives on stdin |
+
+The error message includes the last 40 lines of the Snakemake log.
+Dry runs send nothing, and a failed send is reported on stderr but never
+fails the run. See [Running](running.qmd#email-notifications).
+
+## Output formats
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `outputs` | `['cool', 'mcool', 'hic']` | Any subset of `cool`, `mcool`, `hic`. Anything else stops the run with an error |
+| `base_resolution` | `1000` | Bin size (bp) of the `.cool`. The unit all `mcool` resolutions are built from |
+| `resolutions` | 1 kb to 1 Mb (10 values) | Resolutions in the `.mcool`. Each must be a multiple of `base_resolution`; the base is added automatically if missing |
+| `balance` | `true` | ICE-balance every resolution of the `.mcool` (`cooler zoomify --balance`). The base `.cool` is not balanced. `.hic` files get juicer's own normalisations regardless |
+| `hic_resolutions` | same 10 values | Resolutions written to the `.hic` (`juicer_tools pre -r`). Defaults to `resolutions` if the key is absent |
+| `juicerTools` | `scripts/juicer_tools_1.22.01.jar` | The jar used for `pre` |
+| `javaMem` | `''` | JVM heap (`-Xmx`) for `pre`, e.g. `'96g'`. Empty (the default) means 85% of the `hic` rule's `mem_mb` from the profile, so the heap follows the job's memory. If you set a value, keep it below `mem_mb` |
+
+Requesting `mcool` builds the `.cool` first, since `mcool` is made from it.
+
+## Alignment and pair parsing
+
+| Key | Default | Passed to |
+|-----|---------|-----------|
+| `bwa_flags` | `-5SP -T0` | `bwa mem` (Micro-C / Hi-C standard) |
+| `min_mapq` | `40` | `pairtools parse --min-mapq` |
+| `max_inter_align_gap` | `30` | `pairtools parse --max-inter-align-gap` (bp) |
+| `walks_policy` | `5unique` | `pairtools parse --walks-policy` |
+
+## QC
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `make_bam` | `true` | Keep the sorted BAM `{group}_mapped.PT.bam` (+ `.bai`) as a final output. It is also the input to `preseq`, so `library_complexity` needs it |
+| `library_complexity` | `true` | Run `preseq lc_extrap` (needs `make_bam`) |
+| `preseq_extrap` | `2.1e9` | `preseq -extrap`: how far (in reads) to extrapolate |
+| `qc_report` | `true` | Build `output/qc/MicroC_qc_report.html` |
+| `qc_thresholds` | see below | Traffic-light cut-offs for the dashboard |
+
+### `qc_thresholds`
+
+Each metric has a `direction` and two edges, `warn` and `fail`. For
+`higher_is_better`, a value below `fail` fails and a value below `warn`
+warns; for `lower_is_better` the reverse (above `fail` fails, above `warn`
+warns).
+
+| Metric | Direction | warn | fail | What it is |
+|--------|-----------|------|------|------------|
+| `mapped_pct` | higher | 80 | 60 | Mapped read pairs, % |
+| `duplicate_pct` | lower | 40 | 60 | Duplicate read pairs, % |
+| `cis_pct` | higher | 70 | 50 | Cis pairs, % of non-duplicate pairs |
+| `cis_ge1kb_pct` | higher | 40 | 25 | Cis pairs >= 1 kb, % of non-duplicate pairs |
+| `cis_lt1kb_pct` | lower | 40 | 55 | Cis pairs < 1 kb, % of non-duplicate pairs |
+| `cis_ge10kb_pct` | higher | 20 | 10 | Cis pairs >= 10 kb, % of non-duplicate pairs |
+| `unique_pairs_million` | higher | 100 | 20 | Non-duplicate pairs, millions (absolute) |
+
+These are starting points chosen for this pipeline, not published
+standards. Library type, cell type and protocol all shift them, so adjust
+the edges to what your good libraries look like. The dashboard reads them
+from the config file the run was started with (`--configfile`, else
+`config/MicroCConfig.yaml`); after editing, rebuild with
+`bash MicroCPipe.sh --forcerun qc_report`.
+
+## Optional downstream analysis
+
+| Key | Default | Meaning |
+|-----|---------|---------|
+| `analysis` | `[]` | Any of `expected` (`cooltools expected-cis`), `compartments` (`cooltools eigs-cis`), `insulation` (`cooltools insulation`), `loops` (`mustache`). Each runs on the `.mcool` and writes into `output/{group}/analysis/` |
+| `analysis_resolution` | `expected: 10000`, `compartments: 100000`, `insulation: 10000`, `loops: 5000` | Resolution (bp) used by each; must be in `resolutions` |
+| `insulation_windows` | `[50000, 100000, 200000]` | Window sizes (bp) for `insulation` |
+
+The `.mcool` is built as a dependency even when `mcool` is not in `outputs`. `compartments` and `insulation` read
+the balanced weights, so keep `balance: true` (see
+[Recipes](recipes.qmd#add-a-downstream-analysis)).
+
+## Environment variables
+
+| Variable | Used by | Meaning |
+|----------|---------|---------|
+| `MICROC_PROFILE` | launchers, `unlock.sh` | Profile folder; beats `hpcProfile`, loses to `--profile` |
+| `MICROC_OUTPUT_ROOT` | every rule, launchers | Folder a relative `outputDir` goes under |
+| `MICROC_EMAIL` | both workflows | Notification address; beats `notify.email` |
+| `MICROC_CONDA_ROOT` | `profiles/*/env.sh` | Miniforge install, if not `$HOME/miniforge3` |

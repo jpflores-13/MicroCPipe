@@ -1,0 +1,169 @@
+# Setup
+
+## Prerequisites
+
+- A SLURM cluster, or one machine with enough memory for the `hic` step
+  (see [Cluster Reference](cluster.qmd))
+- `python3` >= 3.11 and `conda` >= 24.7.1, loaded by your site's
+  `profiles/<site>/env.sh`. A one-time Miniforge install in
+  `$HOME/miniforge3` works on every cluster; set `MICROC_CONDA_ROOT` if it
+  lives elsewhere. See [Cluster Reference](cluster.qmd#conda-version).
+- Paired-end Micro-C FASTQ files (`.fastq.gz`)
+- A genome FASTA indexed for BWA (`bwa index genome.fa`), and a chromosome
+  sizes file
+
+There is no separate setup script: environments are built by Snakemake the
+first time a rule needs them. The juicer_tools jar ships in `scripts/`.
+
+## 1. Samplesheet
+
+`MicroCSamplesheet.txt` is tab-separated, one row per **sequencing run**
+(one pair of FASTQ files). A library sequenced on two lanes has two rows.
+
+| Column | Contents |
+|--------|----------|
+| `Name` | A label for the row (required, but not used in file names) |
+| `Read1`, `Read2` | FASTQ file names |
+| `Sequencing_Directory` | Folder that holds both files (joined with the file name) |
+| `Seq_Rep` | Sequencing replicate number (required column) |
+| every column in `mergeBy` | e.g. `Project`, `Cell_Type`, `Bio_Rep`, `Tech_Rep` |
+| anything else | metadata (`Condition`, ...) |
+
+```
+Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  Seq_Rep  Read1                  Read2                  Sequencing_Directory
+GM12878_ctrl_1_1_1  Example  GM12878    Ctrl       1        1         1        MicroC_2M_R1.fastq.gz  MicroC_2M_R2.fastq.gz  /path/to/raw/
+```
+
+The columns in `mergeBy` are joined with `_` to name the **group**, the
+unit that gets one set of outputs (`Example_GM12878_1_1` above). Rows with
+the same group name are one library: their runs are aligned separately and
+then merged and deduplicated together. With the default
+`mergeBy: ['Project', 'Cell_Type', 'Bio_Rep', 'Tech_Rep']`, `Seq_Rep` is not
+part of the name, so sequencing replicates merge into one library. Add
+`Seq_Rep` to `mergeBy` to keep them as separate groups.
+
+::: {.callout-warning}
+Group names become folder and file names, and are inserted into a pattern
+Snakemake uses to match files. Use letters, digits and underscores only in
+the `mergeBy` columns, and avoid values that make two groups look alike.
+:::
+
+### Merge samplesheet
+
+`MicroCMergeSamplesheet.txt` (used only by the Merge workflow) has the
+`mergeBy` columns plus `pairs`: the path to a Core `.pairs.gz`.
+
+```
+Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  pairs
+GM12878_ctrl_1_1    Example  GM12878    Ctrl       1        1         output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz
+GM12878_ctrl_1_2    Example  GM12878    Ctrl       1        2         output/Example_GM12878_1_2/Example_GM12878_1_2.pairs.gz
+```
+
+Its `mergeBy` is `merge: mergeBy:` in the config (by default without
+`Tech_Rep`, so these two rows become one group, `merged_Example_GM12878_1`). Relative
+paths are relative to the folder you launch from; if you set
+`MICROC_OUTPUT_ROOT`, give the full path to the Core output.
+
+## 2. Reference
+
+Both are paths in the config.
+
+- `fasta`: the FASTA passed to `bwa mem`; its BWA index files
+  (`.bwt`, `.pac`, `.sa`, ...) must sit next to it.
+- `chromSizes`: two columns, chromosome name and length, with the **same
+  names as the FASTA**. Every contig listed becomes part of the maps, so
+  trim the file to the chromosomes you want. One way, for a UCSC-style
+  hg38 FASTA:
+
+```bash
+samtools faidx genome.fa
+grep -E '^chr([0-9]+|X|Y|M)\s' genome.fa.fai | cut -f1,2 > hg38.chrom.sizes
+```
+
+Set `genome` (default `hg38`) to the assembly label recorded in the
+`.cool` files.
+
+## 3. Config
+
+Edit `config/MicroCConfig.yaml`. The fields most runs change:
+
+| Field | What to set |
+|-------|-------------|
+| `samplesheet`, `mergeBy` | Samplesheet path and grouping columns |
+| `outputDir` | Where outputs go (default `output`; relative paths go under `$MICROC_OUTPUT_ROOT` if set) |
+| `genome`, `fasta`, `chromSizes` | Reference |
+| `outputs` | Any subset of `cool`, `mcool`, `hic` |
+| `base_resolution`, `resolutions`, `hic_resolutions` | Bin sizes |
+| `javaMem` | Optional JVM heap for the `hic` step (default: 85% of the rule's memory) |
+| `qc_thresholds` | Pass / warn / fail cut-offs for the dashboard |
+| `analysis` | Optional downstream analysis |
+
+See [Configuration](configuration.qmd) for every key.
+
+## 4. Compute site
+
+Pick your site's profile folder: `profiles/biowulf`, `profiles/longleaf`,
+`profiles/pioneer`, `profiles/local` (no scheduler), or your own copy of
+`profiles/slurm-template`. The config default is `profiles/local`. On a
+cluster, set it once in `~/.bashrc`, together with where output should go:
+
+```bash
+echo 'export MICROC_PROFILE=profiles/biowulf' >> ~/.bashrc
+echo 'export MICROC_OUTPUT_ROOT=/data/$USER/MicroCPipe' >> ~/.bashrc
+source ~/.bashrc
+```
+
+See [Cluster Reference](cluster.qmd#per-cluster-settings). Also open the
+profile's `config.yaml` and check the account and partition are yours.
+
+## 5. Conda environments
+
+Each rule runs in one of four environments in `envs/` (`microc_align`,
+`microc_cooler`, `microc_hic`, `microc_qc`), which Snakemake builds on first
+use. Building them inside the launcher job needs more memory than a login
+node; build them once on a compute node before the first real run:
+
+```bash
+srun -N 1 -n 1 -c 4 --mem=16g -t 3:00:00 --pty /bin/bash   # add -p <partition>
+bash MicroCPipe.sh --conda-create-envs-only
+exit
+```
+
+The channels are conda-forge and bioconda; set
+`conda config --set channel_priority strict` if the build complains about
+conflicts. Editing an env file gives it a new hash, so Snakemake builds a
+fresh environment; delete the old one under `.snakemake/conda/` to free
+space.
+
+## 6. Email (optional)
+
+```bash
+export MICROC_EMAIL=you@university.edu   # e.g. in ~/.bashrc
+```
+
+You then get one email when a run starts, finishes, or fails. See
+[Running](running.qmd#email-notifications) for the `notify:` options.
+
+## 7. Check the setup
+
+Before submitting hundreds of jobs, list them:
+
+```bash
+bash MicroCPipe.sh -n
+```
+
+A dry run reads the samplesheet and config, checks the input files exist,
+and prints every job it would run. It runs no tools. See
+[Running](running.qmd#dry-run-first).
+
+## Troubleshooting setup
+
+| Symptom | Likely cause | Fix |
+|---------|--------------|-----|
+| `... is missing column(s): [...]` | Header typo, or spaces instead of tabs | Use tabs and the exact column names |
+| `resolution N is not a multiple of base_resolution` | A resolution the base does not divide | Use multiples of `base_resolution` |
+| `config 'outputs' has unknown format(s)` | Typo in `outputs` | `cool`, `mcool`, `hic` |
+| `MissingInputException` naming a FASTQ | `Sequencing_Directory` or file name wrong | Check the path on this cluster |
+| `bwa` reports it cannot open the index | The FASTA has no BWA index next to it | `bwa index genome.fa` |
+| `Error running conda info` | conda not on `PATH` | Fix the conda line in `profiles/<site>/env.sh` |
+| Launcher `OUT_OF_MEMORY` on the first run | Environments built inside the launcher job | Build them once on a compute node (step 5) |

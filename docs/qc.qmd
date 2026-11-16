@@ -1,0 +1,182 @@
+# Reading the QC dashboard
+
+When the Core workflow finishes, `output/qc/MicroC_qc_report.html` is the
+first thing to open. It is one self-contained file (the plotting library is
+embedded), so it works offline, and you can email it. It has one section per
+question you would ask about a library. This chapter says what each panel
+shows, how to read it, and what a failing Micro-C library looks like.
+
+::: {.callout-warning}
+**The thresholds are rules of thumb.** The pass / warn / fail cut-offs are
+the defaults of `qc_thresholds` in `config/MicroCConfig.yaml`. They were
+chosen for this pipeline, are not published standards, and depend on your
+cell type, protocol and sequencing. Compare a new library with your own
+good ones, and adjust the config to match.
+:::
+
+Everything is computed from the `pairtools dedup` statistics of each group
+(`{group}_dedup_stats.txt`), plus the preseq output and benchmark files when
+they exist. Groups whose stats file is missing are left out.
+
+## Summary table
+
+One row per group, sortable by column. Each metric cell is coloured by its
+status, and the group's status is its worst metric. Hover a column header for
+the definition and the thresholds.
+
+| Metric | Definition | Direction |
+|--------|-----------|-----------|
+| Mapped (%) | mapped read pairs / total read pairs | higher is better |
+| Duplicates (%) | duplicate read pairs / total read pairs | lower is better |
+| Cis (%) | cis pairs / non-duplicate pairs | higher is better |
+| Cis >= 1 kb (%) | cis pairs of at least 1 kb / non-duplicate pairs | higher is better |
+| Cis < 1 kb (%) | cis pairs shorter than 1 kb / non-duplicate pairs | lower is better |
+| Cis >= 10 kb (%) | cis pairs of at least 10 kb / non-duplicate pairs | higher is better |
+| Unique pairs (M) | non-duplicate pairs, in millions | higher is better |
+
+Three more columns are informational and have no traffic light: total pairs
+(M), duplicates as a share of mapped pairs, and valid pairs (trans plus
+cis >= 1 kb, as a share of non-duplicate pairs, the same definition as in
+Dovetail's `get_qc.py`).
+
+The same numbers, in a plain table, are in
+`output/{group}/{group}_qc_summary.txt`.
+
+### Default thresholds
+
+| Metric | warn | fail |
+|--------|------|------|
+| Mapped | below 80 | below 60 |
+| Duplicates | above 40 | above 60 |
+| Cis | below 70 | below 50 |
+| Cis >= 1 kb | below 40 | below 25 |
+| Cis < 1 kb | above 40 | above 55 |
+| Cis >= 10 kb | below 20 | below 10 |
+| Unique pairs (M) | below 100 | below 20 |
+
+A value exactly on an edge is not penalised.
+
+## What the metrics mean for Micro-C
+
+- **Mapped and duplicates.** Low mapping suggests contamination, the wrong
+  reference, adapters or very short reads. High duplicates mean the library
+  was sequenced past its complexity (see the preseq panel) or too little
+  material went into the PCR. Duplicates are a share of *all* read pairs.
+- **Cis versus trans.** Most real contacts are between loci on the same
+  chromosome. A low cis share (high trans) points to random ligation
+  between unrelated fragments, the usual signature of a noisy library.
+- **Cis < 1 kb versus >= 1 kb.** This is the most Micro-C-specific check.
+  Very short cis pairs include real nucleosome-scale contacts but also
+  uninformative products (undigested, self-ligated or dangling fragments)
+  that carry no long-range information. A library whose cis pairs are
+  mostly < 1 kb has little information per sequenced read, however many
+  reads there are. The share >= 1 kb, and especially >= 10 kb, is what
+  feeds the loops, domains and compartments you will analyse.
+- **Unique pairs.** Absolute depth of the final `.pairs.gz`. Needed
+  depth depends on the resolution you want: fine bins need many more
+  pairs than coarse ones.
+
+## Library composition
+
+- **Pair types.** Stacked bars of the `pairtools` pair types as a share of
+  all read pairs: `UU` unique-unique (the good ones), `UR` / `RU` rescued,
+  `NU` / `UN` one side unmapped, `MU` one side multi-mapped, `DD`
+  duplicates, and so on. A large unmapped or multi-mapped slice explains a low
+  mapped %; a large `DD` slice explains the duplicate %. (If the stats file
+  has no pair types, the panel falls back to unmapped / duplicates /
+  non-duplicate.)
+- **Cis vs trans.** Cis and trans shares of non-duplicate pairs.
+- **Cis by genomic distance.** Stacked bars of cis pairs split into
+  distance bins (< 1 kb, 1-2, 2-4, 4-10, 10-20, 20-40 and >= 40 kb) plus trans. Compare libraries
+  here: a good library puts a large share in the longer bins.
+- **Contact matrices (.mcool).** Only if `cooler` can be imported: number
+  of resolutions, finest bin, contacts, non-zero pixels and whether the
+  matrix is balanced.
+
+## Contact decay P(s)
+
+P(s) is the contact probability as a function of the genomic distance s
+between the two read ends. The panel plots, for every group, pairs per base
+pair of distance (normalised so that curves are comparable regardless of
+depth) on log-log axes, with a dashed line at 1 kb.
+
+- **Beyond ~1 kb** the curve should fall smoothly, roughly as a power law;
+  loops, domains and the cell cycle bend it gently, so replicates of the same
+  cell type should lie nearly on top of each other.
+- **Below ~1 kb** Micro-C shows nucleosome-scale features (the
+  "shoulder") that restriction-enzyme Hi-C cannot resolve. A library that
+  has no sign of it, or whose short-range part dominates and differs sharply
+  from its replicates, deserves a closer look.
+- **Outliers.** A curve that sits well above its replicates at short range
+  and below them at long range is a library dominated by short products.
+  A curve that flattens at long range suggests excess random ligation.
+
+## Strand orientation versus distance
+
+For each distance bin, the fraction of pairs that are inward-facing, outward-
+facing, or on the same strand, divided by what random ligation would give
+(25% inward, 25% outward, 50% same-strand). So a value of 1 means balanced.
+
+- **At long range** all three lines should sit near 1.
+- **At short range** a strong excess of inward or outward pairs flags
+  artefacts: undigested DNA, self-ligated fragments, or dangling ends.
+  Some short-range deviation is expected in Micro-C, because the geometry
+  of ligation between neighbouring nucleosomes is not random; what matters
+  is that it resolves toward 1 with distance, and that replicates agree.
+
+## Library complexity
+
+The curve is `preseq lc_extrap`: for a given number of sequenced read pairs,
+how many *distinct* pairs you would expect, with a 95% confidence band. The
+diamond marks what was actually observed (mapped reads versus non-duplicate
+pairs from `pairtools`); a small offset from the curve is expected, because
+preseq counts reads in the BAM.
+
+- A curve that is still rising steeply at your depth says more sequencing
+  will pay off.
+- A curve that has flattened says you are mostly resequencing the same
+  molecules, and new depth should come from a new library.
+
+`preseq_extrap` in the config sets how far the curve is extrapolated. The
+panel is empty if `library_complexity` is turned off.
+
+## Runtime and memory
+
+A table, one row per group and rule, of wall time, peak memory (RSS) and I/O,
+read from the benchmark files. Use it to size your profile: if `hic` or `dedup`
+peaked near its memory limit, raise it before the next, deeper library.
+The same data is in `output/benchmarking.tsv`.
+
+## Methods
+
+The last section lists every metric's definition with the **active**
+thresholds, and describes each plot, so a shared report is self-explanatory.
+
+## What failure looks like
+
+| What you see | Likely cause | What to do |
+|--------------|--------------|------------|
+| Low mapped %, many `NN` / `NU` pairs | Wrong reference or chromosome sizes, adapter or contamination, reads too short | Check `fasta`, `chromSizes`, read length; look at the unmapped reads |
+| High duplicates, preseq curve flat | Over-sequenced low-complexity library | Make or sequence a new library; deeper sequencing of this one adds little |
+| Low cis %, high trans | Random ligation, poor crosslinking or digestion | Library is noisy; consider repeating the prep |
+| Most cis pairs < 1 kb | Over-digested or under-ligated chromatin; short, uninformative products | Few useful long-range contacts per read; check the prep rather than adding depth |
+| Strong short-range orientation excess that does not fade with distance | Undigested or self-ligated fragments | As above |
+| Good percentages but very few unique pairs | Fine, just shallow | Sequence deeper (see preseq) |
+| P(s) of a replicate disagrees with its siblings | Different digestion level, or a failed library | Do not merge it blindly |
+
+A warning is not a verdict: libraries that warn can still be informative at
+coarser resolution. A failure on `cis_ge1kb_pct` or on unique pairs is the
+most consequential for loop-scale analysis.
+
+## Changing thresholds or rebuilding the dashboard
+
+Edit `qc_thresholds` in your config and rebuild only the
+dashboard:
+
+```bash
+bash MicroCPipe.sh --forcerun qc_report
+```
+
+The dashboard step reads the config file the run was started with
+(`--configfile`, else `config/MicroCConfig.yaml`) and waits for
+`benchmarking.tsv`; to hide it entirely set `qc_report: false`.

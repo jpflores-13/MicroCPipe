@@ -1,0 +1,76 @@
+# References {.unnumbered}
+
+## Pipeline and method
+
+**dietJuicer** (PhanstielLab). The Core + Merge pipeline layout, samplesheet
+and profile conventions MicroCPipe follows.
+<https://github.com/PhanstielLab/dietJuicer>
+
+**Dovetail Genomics Micro-C documentation and example scripts.** The
+alignment recipe (`bwa mem -5SP -T0`, `pairtools` steps) and the
+`get_qc.py` QC table that `scripts/get_qc.py` is taken from.
+<https://github.com/dovetail-genomics/Micro-C>
+
+**Hsieh T-HS, Fudenberg G, Goloborodko A, Rando OJ.**
+Micro-C XL: assaying chromosome conformation from the nucleosome to the entire
+genome. *Nature Methods* **13**:1009-1011 (2016).
+
+**Hsieh T-HS, Weiner A, Lajoie B, Dekker J, Friedman N, Rando OJ.**
+Mapping nucleosome resolution chromosome folding in yeast by Micro-C.
+*Cell* **162**(1):108-119 (2015). <https://doi.org/10.1016/j.cell.2015.05.048>
+
+**Hsieh T-HS et al.** Resolving the 3D landscape of transcription-linked mammalian
+chromatin folding. *Molecular Cell* **78**(3):539-553 (2020).
+<https://doi.org/10.1016/j.molcel.2020.03.002>
+
+**Krietenstein N et al.** Ultrastructural
+details of mammalian chromosome architecture. *Molecular Cell*
+**78**(3):554-565 (2020). <https://doi.org/10.1016/j.molcel.2020.03.003>
+
+## Software
+
+**pairtools**: processing of Hi-C / Micro-C read pairs (`parse`, `sort`,
+`merge`, `dedup`, `split`, `stats`).
+Open2C et al., *Pairtools: from sequencing data to chromosome
+contacts*, PLOS Computational Biology (2024). <https://github.com/open2c/pairtools>
+
+**cooler**: sparse, HDF5-based storage for contact matrices (`.cool`,
+`.mcool`).
+Abdennur N, Mirny LA. *Bioinformatics* **36**(1):311-316 (2020).
+<https://github.com/open2c/cooler>
+
+**cooltools**: analysis of cooler files (expected, compartments, insulation).
+<https://github.com/open2c/cooltools>
+
+**Juicer / juicer_tools**: `.hic` creation and normalisation.
+Durand NC, Shamim MS, Machol I, et al. *Cell Systems* **3**(1):95-98 (2016).
+<https://github.com/aidenlab/juicer>
+
+**preseq**: library complexity extrapolation (`lc_extrap`).
+Daley T, Smith AD. *Nature Methods* **10**:325-327 (2013).
+<https://github.com/smithlabcode/preseq>
+
+**BWA (`bwa mem`)**: Li H. Aligning sequence reads, clone sequences and
+assembly contigs with BWA-MEM. arXiv:1303.3997 (2013).
+<https://github.com/lh3/bwa>
+
+**SAMtools**: Danecek P, et al. Twelve years of SAMtools and BCFtools.
+*GigaScience* **10**(2):giab008 (2021). <http://www.htslib.org>
+
+**mustache**: loop calling in Hi-C / Micro-C maps.
+Roayaei Ardakany A, Gezer HT, Lonardi S, Ay F. *Genome Biology* **21**:256 (2020).
+<https://github.com/ay-lab/mustache>
+
+**Snakemake**: workflow management. Mölder F, et al. *F1000Research* **10**:33 (2021).
+<https://snakemake.readthedocs.io>
+
+**Snakemake SLURM executor plugin**: <https://github.com/snakemake/snakemake-executor-plugin-slurm>
+
+**HiCExperiment** (Bioconductor) and **strawr**, used in the vignette to read
+`.cool` / `.mcool` and `.hic` files from R.
+
+## Tutorials
+
+**Open2C "open2c_examples" repository.** Worked notebooks for pairtools,
+cooler and cooltools (the conceptual model for the reads-to-maps flow here).
+<https://github.com/open2c/open2c_examples>

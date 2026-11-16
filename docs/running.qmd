@@ -1,0 +1,201 @@
+# Running the Pipeline
+
+## Launch
+
+```bash
+sbatch MicroCPipe.sh
+```
+
+`MicroCPipe.sh` follows the dietJuicer launcher pattern: it sources the
+site's `profiles/<site>/env.sh` (software setup), builds a venv in `env/`
+from `config/requirements.txt`, and runs Snakemake with that site's profile
+(`hpcProfile` in the config, or `$MICROC_PROFILE`, or `--profile`). On
+`profiles/local`, run it with `bash` instead of `sbatch`. Each rule becomes
+its own SLURM job.
+
+## What happens
+
+```
+align (per sequencing run) ─► dedup (per group) ─► split ─┬─► cool ─► mcool
+                                                          ├─► hic
+                                                          └─► sort_bam ─► library_complexity
+dedup stats ─► qc_summary
+all of the above ─► benchmark_summary, qc_report
+```
+
+| Rule | What it does |
+|------|--------------|
+| `align` | `bwa mem -5SP -T0` -> `pairtools parse` -> `pairtools sort`, one job per samplesheet row |
+| `dedup` | Merges a group's runs, marks duplicates, writes the stats |
+| `split` | `.pairs.gz` (only unique UU/UR/RU pairs, via `pairtools select`) and an unsorted BAM |
+| `sort_bam` | Sorted, indexed BAM (when `make_bam` is on) |
+| `qc_summary` | Dovetail-style QC table |
+| `library_complexity` | `preseq lc_extrap` |
+| `cool` / `mcool` / `hic` | The contact maps |
+| `analysis_*` | Optional cooltools / mustache |
+| `benchmark_summary` | Runtime / memory table |
+| `qc_report` | The static dashboard |
+
+Resources for each rule are in `profiles/<site>/config.yaml` under
+`set-threads:` and `set-resources:`.
+
+## Dry run first
+
+```bash
+bash MicroCPipe.sh -n
+```
+
+Prints every job and shell command that would be submitted; nothing runs.
+Use it after every change to the samplesheet or config: it shows which
+groups Snakemake found, how many alignment jobs there are, and which files
+are missing. Extra arguments go straight to `snakemake`, e.g.
+`bash MicroCPipe.sh --conda-create-envs-only` builds the environments
+without running anything.
+
+## The Merge workflow
+
+After the Core workflow has finished, combine libraries (for example
+technical replicates) into one deeper map:
+
+1. List each library's `.pairs.gz` in `MicroCMergeSamplesheet.txt`, with the
+   metadata columns of `merge: mergeBy:`.
+2. Check it:
+
+    ```bash
+    bash MicroCMerge.sh -n
+    ```
+
+3. Run it:
+
+    ```bash
+    sbatch MicroCMerge.sh
+    ```
+
+For each merged group it writes `{group}_merged.pairs.gz` (with `{group}` = `merged_<...>`) and then the
+formats listed in `outputs` (`.cool`, `.mcool`, `.hic`, and any `analysis`)
+into `output/{group}/`. Merge groups are named `merged_<mergeBy values>`, e.g.
+`output/merged_Example_GM12878_1/merged_Example_GM12878_1.mcool`, so they never
+collide with Core outputs. The merge uses the same config, profile and
+`outputDir` as the Core workflow. It makes no QC dashboard: the QC of a
+merged map is the QC of the libraries that went into it.
+
+## Email notifications
+
+Set an address and the workflow emails you once when it starts, once when it
+finishes, and once if any job fails (not once per job):
+
+```bash
+export MICROC_EMAIL=you@university.edu   # e.g. in ~/.bashrc
+```
+
+The address can also go in `notify: email:` in the config; the environment
+variable keeps it out of a shared repo and wins if both are set. With
+neither set, nothing is sent. `notify: events:` picks which of `start`,
+`success`, `error` to send, and `notify: command:` is the shell command that
+sends one message (default `mail -s {subject} {email}`, with the body on
+stdin; use e.g. `sendmail {email}` on clusters without `mail`, putting a
+`Subject:` line in the body). The failure email includes the last 40 lines
+of the Snakemake log. Dry runs (`-n`) send nothing, and a failed email never
+fails the workflow. Check your cluster can send mail with
+`echo test | mail -s test $MICROC_EMAIL`.
+
+The launcher job itself also carries `#SBATCH --mail-type=END,FAIL,TIME_LIMIT_80`;
+`sbatch --mail-user=$MICROC_EMAIL MicroCPipe.sh` directs SLURM's own mail.
+
+## Using a different config
+
+```bash
+sbatch MicroCPipe.sh --configfile config/my_run.yaml
+```
+
+The file must be a complete config. Keep one config per project to avoid
+editing the shipped one.
+
+## After a failed run
+
+```bash
+bash unlock.sh               # release the Snakemake lock
+sbatch MicroCPipe.sh         # --rerun-incomplete is on by default
+```
+
+For the Merge workflow use `bash unlock.sh --merge`. If you used another
+config or profile, pass the same `--configfile` and `--profile` to
+`unlock.sh`.
+
+## Resuming and re-running
+
+Snakemake decides what to run from which output files exist, so resuming is
+the same as launching again:
+
+- **Resume after a crash or time-out.** Run `unlock.sh` if the lock error
+  appears, then launch again. Finished jobs are kept; failed ones are rerun
+  (`--rerun-incomplete` is on, and `--keep-going` lets independent groups
+  finish when one fails).
+- **Add a library.** Add rows to the samplesheet and launch again; groups
+  that are already finished are not touched. Adding a row to an existing
+  group changes that group, so it is realigned and redone from `dedup` on.
+- **Change one parameter.** A parameter that is part of a rule (for
+  example `resolutions`) makes Snakemake rerun the affected rules.
+  Check what it plans with a dry run first.
+- **Rebuild just the dashboard.** The dashboard step does not notice edits
+  to `qc_thresholds`, so force it:
+
+    ```bash
+    bash MicroCPipe.sh --forcerun qc_report
+    ```
+
+- **Stop part-way.** `--until <rule>` stops after a rule, e.g.
+  `bash MicroCPipe.sh --until dedup`.
+
+## Monitoring
+
+| Log | Path |
+|-----|------|
+| Launcher (main Snakemake process) | `MicroCPipe-{jobid}.out` |
+| Each job's log | `output/{group}/logs/{group}_{rule}.log` (alignment: `{run}_align.log`) |
+| Dashboard log | `output/qc/qc_report.log` |
+| SLURM job logs | `output/logs_slurm/` |
+| Per-job run time and memory | `output/{group}/benchmarks/`, and `output/benchmarking.tsv` once the run ends |
+
+```bash
+squeue -u $USER
+```
+
+## Output structure
+
+Everything is written under `outputDir`: `output/` in the folder you launch
+from by default, or under `$MICROC_OUTPUT_ROOT` when that is set.
+
+```
+output/
+├── benchmarking.tsv
+├── qc/
+│   ├── MicroC_qc_report.html
+│   └── qc_report.log
+├── {group}/
+│   ├── {group}.pairs.gz              # Core (unique pairs only); Merge: merged_<g>/merged_<g>_merged.pairs.gz
+│   ├── {group}.cool
+│   ├── {group}.mcool
+│   ├── {group}.hic
+│   ├── {group}_dedup_stats.txt
+│   ├── {group}_qc_summary.txt
+│   ├── {group}_libraryComplexity.txt
+│   ├── {group}_mapped.PT.bam(.bai)
+│   ├── analysis/
+│   ├── logs/
+│   └── benchmarks/
+└── logs_slurm/
+```
+
+## Troubleshooting
+
+| Symptom | Fix |
+|---------|-----|
+| Snakemake lock error | `bash unlock.sh` then resubmit |
+| `hic` job killed or Java heap error | Raise `hic: mem_mb` in the profile (the heap is 85% of it unless `javaMem` is set) ([Recipes](recipes.qmd#when-the-hic-step-runs-out-of-memory)) |
+| A rule ends in `TIMEOUT` | Raise that rule's `runtime:` in `profiles/<site>/config.yaml`, `bash unlock.sh`, resubmit |
+| `MissingInputException` | A FASTQ or `pairs` path does not exist from where you launched |
+| Output in the launch folder instead of scratch | `MICROC_OUTPUT_ROOT` not set in the shell that ran `sbatch`; `source ~/.bashrc` and resubmit |
+| Jobs on the wrong cluster's partitions or account | `MICROC_PROFILE` not set; `echo $MICROC_PROFILE`, or pass `--profile` |
+| No emails arrive | Test `echo test \| mail -s test $MICROC_EMAIL`; change `notify: command:` |
+| A job failed | Read its log in `output/{group}/logs/` |
