@@ -1,0 +1,3 @@
+Name	Project	Cell_Type	Condition	Bio_Rep	Tech_Rep	pairs
+GM12878_ctrl_1_1	Example	GM12878	Ctrl	1	1	output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz
+GM12878_ctrl_1_2	Example	GM12878	Ctrl	1	2	output/Example_GM12878_1_2/Example_GM12878_1_2.pairs.gz

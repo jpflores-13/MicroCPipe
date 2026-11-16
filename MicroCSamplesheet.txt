@@ -1,0 +1,2 @@
+Name	Project	Cell_Type	Condition	Bio_Rep	Tech_Rep	Seq_Rep	Read1	Read2	Sequencing_Directory
+GM12878_ctrl_1_1_1	Example	GM12878	Ctrl	1	1	1	MicroC_2M_R1.fastq.gz	MicroC_2M_R2.fastq.gz	/path/to/raw/
