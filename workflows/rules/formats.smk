@@ -111,6 +111,6 @@ rule analysis_loops:
     output: tsv = OUT + "/{group}/analysis/{group}_loops.tsv", done = touch(OUT + "/{group}/analysis/{group}_loops.done")
     log: OUT + "/{group}/logs/{group}_loops.log"
     threads: 1
-    conda: ENVS + "/microc_cooler.yml"
+    conda: ENVS + "/microc_mustache.yml"
     params: res = config.get("analysis_resolution", {}).get("loops", 5000)
     shell: "mustache -f {input.mcool} -r {params.res} -o {output.tsv} 2> {log}"
