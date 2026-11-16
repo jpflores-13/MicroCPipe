@@ -1,0 +1,10 @@
+## Tiny config for CI dry runs (snakemake -n): files exist but are empty,
+## nothing is executed. Paths are relative to the repository root.
+samplesheet: 'tests/dryrun/samplesheet.txt'
+merge:
+  samplesheet: 'tests/dryrun/merge_samplesheet.txt'
+  mergeBy: ['Project', 'Cell_Type', 'Bio_Rep']
+outputDir: 'output_ci'
+fasta: 'tests/dryrun/genome.fa'
+chromSizes: 'tests/dryrun/tiny.chrom.sizes'
+analysis: ['expected', 'insulation']

@@ -1,0 +1,3 @@
+Name	Project	Cell_Type	Condition	Bio_Rep	Tech_Rep	pairs
+A_1_1	CI	CellA	Ctrl	1	1	tests/dryrun/lib1.pairs.gz
+A_1_2	CI	CellA	Ctrl	1	2	tests/dryrun/lib2.pairs.gz

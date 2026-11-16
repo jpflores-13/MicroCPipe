@@ -1,0 +1,4 @@
+Name	Project	Cell_Type	Condition	Bio_Rep	Tech_Rep	Seq_Rep	Read1	Read2	Sequencing_Directory
+A_1_1_1	CI	CellA	Ctrl	1	1	1	R1.fastq.gz	R2.fastq.gz	tests/dryrun
+A_1_1_2	CI	CellA	Ctrl	1	1	2	R1.fastq.gz	R2.fastq.gz	tests/dryrun
+A_1_2_1	CI	CellA	Ctrl	1	2	1	R1.fastq.gz	R2.fastq.gz	tests/dryrun
