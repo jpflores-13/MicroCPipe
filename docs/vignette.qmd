@@ -96,6 +96,21 @@ account and partition are yours ([Cluster Reference](cluster.qmd#adding-a-new-si
 On a laptop, skip this step: the default profile is `profiles/local`, and you
 start the run with `bash MicroCPipe.sh` instead of `sbatch MicroCPipe.sh`.
 
+::: {.callout-note title="Example: Case Western Reserve University (Pioneer)"}
+On Pioneer the profile is `profiles/pioneer`, and big files should live on
+scratch, not in your home directory:
+
+```bash
+export MICROC_PROFILE=profiles/pioneer
+export MICROC_OUTPUT_ROOT=/scratch/pioneer/users/$USER/projects/MicroCPipe_results
+```
+
+Open `profiles/pioneer/config.yaml` and replace `<account>` with your SLURM
+account (`sacctmgr show assoc user=$USER format=account`). The full walk-through,
+including where to put caches, is in the
+[Cluster Reference](cluster.qmd#pioneer-example).
+:::
+
 **What this means.** A *profile* tells Snakemake how to run jobs on your
 machine: on a cluster, which account and partition to ask for; on a laptop,
 just to run everything locally. `MICROC_OUTPUT_ROOT` only decides where the
@@ -162,6 +177,16 @@ each job's log is in `$MICROC_OUTPUT_ROOT/output/<group>/logs/`. If you set
 
 **What this means.** `squeue` lists your waiting (`PD`) and running (`R`)
 jobs. The first run is slow because each conda environment is built once.
+
+::: {.callout-note title="Example: what a run looked like on Pioneer"}
+For one library of 25 million read pairs (whole mouse genome, 16 threads),
+the launcher job started quickly, the first run spent its first
+several minutes building the conda environments, and then the rule jobs
+appeared in `squeue` roughly in this order: `align` (the longest, about half an hour),
+`dedup`, `split`, then `cool`, `sort_bam` and `hic` side by side, then `mcool`,
+`preseq` and the QC steps, and finally `qc_report`. Times depend on queue load
+and library depth; see [Choosing resources](cluster.qmd#choosing-resources).
+:::
 
 If something fails, read that job's log ([Troubleshooting](troubleshooting.qmd)
 explains where to look), fix the cause (often memory or time in the profile),

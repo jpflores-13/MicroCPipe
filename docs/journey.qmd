@@ -159,3 +159,28 @@ and merges them into a single deeper "mega" map, with its own `mergeBy`
 (by default leaving out `Tech_Rep`). It does not re-align anything. The
 inputs were deduplicated within each library, and merging does not
 deduplicate between libraries.
+
+## A run, from your terminal to the finished maps
+
+The pieces above all happen automatically, but it helps to picture where each
+one runs. This is the same journey on one university cluster (Case Western
+Reserve University's Pioneer), as a model for yours.
+
+1. **You** log in to the login node, edit the samplesheet and the profile, and
+   type `sbatch MicroCPipe.sh`. Nothing heavy runs here.
+2. **The launcher job** (a small SLURM job) starts on a compute node. It sets
+   up Snakemake and reads your samplesheet, then asks the scheduler for one job
+   per task.
+3. **`align`** is the first big job: it reads your FASTQ files from scratch and
+   writes alignments. It uses 16 threads and is the longest step.
+4. **`dedup` and `split`** run next, one per group of samplesheet rows, turning
+   alignments into the `.pairs.gz` file that every contact map is built from.
+5. **`cool`, `mcool` and `hic`** run at the same time on that pairs file; the QC
+   steps run alongside them.
+6. **`qc_report`** runs last and writes the dashboard, a single HTML file you
+   can download and open in a browser.
+
+The scheduler decides when each job starts, so waits between steps depend on how
+busy the cluster is. [Cluster Reference](cluster.qmd#pioneer-example) has the
+commands to try this on Pioneer; [Cluster Reference](cluster.qmd#adding-a-new-site)
+shows how to adapt it to another site.

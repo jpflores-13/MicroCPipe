@@ -241,6 +241,73 @@ for your cluster.
 - **Reference genomes.** Some sites provide pre-built BWA indexes; ask your
   support team where. Otherwise build one with `bwa index genome.fa`.
 
+## Worked example: Case Western Reserve University (Pioneer) {#pioneer-example}
+
+This is one real site, written out step by step as a model for yours. If you
+are at Case Western Reserve University it should work as written; anywhere else,
+use it as a pattern and substitute your site's values. Everything below was
+observed in November 2026, so check `sinfo -s` and your site's documentation
+for current limits.
+
+**What Pioneer looks like to this pipeline**
+
+| Item | What we saw | What it means for you |
+|---|---|---|
+| Scheduler | SLURM, default partition `batch` (CPU nodes, long time limit of up to about 13 days) | `profiles/pioneer` uses `batch` for every rule |
+| Account | A SLURM account (association) is needed | Run `sacctmgr show assoc user=$USER format=account,partition` and put the account in `slurm_account` |
+| CPU nodes | About 40 cores and 190 GB of memory per node | Plenty for the `hic`, `dedup` and `align` rules of a deep library |
+| CPUs follow memory | A 16 GB job gets roughly 3 CPUs (the memory-per-CPU cap is 6 GB) | This is why the profile sets `cores: 100`; see [Troubleshooting](troubleshooting.qmd) |
+| Conda | The `conda` modules are older than Snakemake 8.27 needs | Install your own Miniforge ([above](#conda-version)); `profiles/pioneer/env.sh` expects it at `$HOME/miniforge3` |
+| Home directory | Small per-user quota on a shared filesystem | Keep caches, references and results on scratch (below) |
+| Scratch | Per-user project space under `/scratch/pioneer/users/` (check that your group has a folder; `ls /scratch/pioneer/users/$USER`) | Set `MICROC_OUTPUT_ROOT` there |
+| Internet | Login nodes can download from public servers; some servers (we saw one genome host) fail certificate checks from compute nodes | Download genomes and reads on the login node, not inside a job |
+
+**Step by step**
+
+```bash
+# 1. One-time: your own Miniforge, if you do not have one (about 0.5 GB)
+wget https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+bash Miniforge3-Linux-x86_64.sh -b -p $HOME/miniforge3
+
+# 2. Get the pipeline onto scratch (not home) and edit the profile
+cd /scratch/pioneer/users/$USER/projects
+git clone https://github.com/jpflores-13/MicroCPipe.git
+cd MicroCPipe
+sacctmgr show assoc user=$USER format=account,partition   # find your account
+${EDITOR:-nano} profiles/pioneer/config.yaml              # replace <account>
+
+# 3. Settings for this cluster, once (in ~/.bashrc), then open a new shell
+export MICROC_PROFILE=profiles/pioneer
+export MICROC_OUTPUT_ROOT=/scratch/pioneer/users/$USER/projects/MicroCPipe_results
+
+# 4. Keep Snakemake, conda and pip caches off your home quota
+export XDG_CACHE_HOME=/scratch/pioneer/users/$USER/cache
+export CONDA_PKGS_DIRS=/scratch/pioneer/users/$USER/conda_pkgs
+export PIP_CACHE_DIR=/scratch/pioneer/users/$USER/pip_cache
+
+# 5. Dry run, then submit
+bash MicroCPipe.sh -n
+sbatch MicroCPipe.sh
+squeue -u $USER                      # watch the jobs
+```
+
+The launcher itself is a small job (1 CPU request, 16 GB); it then submits
+each rule as its own job in the `batch` partition. Results appear under
+`$MICROC_OUTPUT_ROOT/output/`, job logs under
+`$MICROC_OUTPUT_ROOT/output/logs_slurm/`.
+
+**Tips for Pioneer users**
+
+- Reference genomes: if your lab does not already have a BWA index, build one
+  once on a compute node (about an hour for a whole mouse or human genome;
+  see the [Vignette](vignette.qmd#point-the-config-at-your-reference)) and
+  reuse it for every project.
+- Several people building conda environments at the same time can corrupt a
+  shared conda package cache. Use a private `CONDA_PKGS_DIRS` as in step 4.
+- Email: set `MICROC_EMAIL` ([Running](running.qmd#email-notifications)) to be
+  mailed when a run starts, finishes or fails, if mail is enabled for your
+  account.
+
 ## Troubleshooting
 
 See [Troubleshooting](troubleshooting.qmd) for the full table. The ones that
