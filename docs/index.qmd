@@ -14,8 +14,8 @@ all 12 steps on a 25-million-read-pair mouse embryonic stem cell library (whole
 mm10 genome) on one SLURM cluster, and ran locally on a Mac. The Merge
 workflow completed on two replicates, and the merged map's contacts were
 exactly the sum of the replicates. The optional `analysis` options
-(`expected`, `compartments`, `insulation`, `loops`) are off by default and have
-only been dry-run tested so far; a test on the 25M-pair run is in progress.
+(`expected`, `compartments`, `insulation`, `loops`) are off by default; each ran
+and produced output on that library (not validated biologically).
 Other sites' profiles are templates that may need small edits; issues and
 pull requests are welcome.
 :::

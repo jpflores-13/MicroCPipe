@@ -57,8 +57,8 @@ everything → qc_report → qc/MicroC_qc_report.html
 
 The Core workflow completed all 12 steps on a 25M-pair mouse (mm10) library on
 one SLURM cluster and ran locally on macOS; the Merge workflow completed on two
-replicates. The optional `analysis` rules are off by default and only dry-run
-tested so far. Profiles for other sites are templates that may need small edits.
+replicates. The optional `analysis` rules are off by default; each ran and produced
+output on that same library (not validated biologically). Profiles for other sites are templates that may need small edits.
 
 ### Setup and launch
 

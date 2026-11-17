@@ -29,10 +29,11 @@ cluster.
 > - **Merge workflow: tested for real** on two replicates of that library. The merged
 >   map's contact count was exactly the sum of the replicates; outputs are under
 >   `output/merged_<group>/`.
-> - **Optional `analysis` rules (`expected`, `compartments`, `insulation`, `loops`):
->   not yet run for real.** They are off by default and have only been dry-run tested
->   (an analysis test on the 25M-pair run is in progress). Treat their output with
->   care until that is done.
+> - **Optional `analysis` rules (`expected`, `compartments`, `insulation`, `loops`):**
+>   each ran and produced output on the 25M-pair mouse library (one dataset, one
+>   cluster). They are off by default. The results have not been validated
+>   biologically; for example `loops` called only 10 loops at that depth with default
+>   settings. Check the output against your expectations.
 > - **Other sites.** `profiles/biowulf`, `profiles/longleaf`, `profiles/pioneer` and
 >   `profiles/slurm-template` are starting points. Account names, partitions and limits
 >   differ everywhere, so expect to edit them. Issues and pull requests are welcome.

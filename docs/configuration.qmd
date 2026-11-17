@@ -231,9 +231,11 @@ Copy the whole block from the shipped config and edit numbers.
 
 ## Optional downstream analysis
 
-::: {.callout-warning}
-**Not yet tested on real data.** These options are off by default and have only
-been dry-run tested; an analysis test on a real 25M-pair run is in progress.
+::: {.callout-note}
+**Tested on one real dataset.** Each option ran and produced output on a
+25M-pair mouse library (one dataset, one cluster). They are off by default, and
+the results have not been validated biologically: at that depth `loops` called
+only 10 loops with default settings. Check the output against your expectations.
 :::
 
 | Key | Default | Meaning |

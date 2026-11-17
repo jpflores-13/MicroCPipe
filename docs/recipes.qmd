@@ -50,10 +50,11 @@ sbatch MicroCPipe.sh --configfile config/mouse.yaml
 
 ## Add a downstream analysis
 
-::: {.callout-warning}
-**Not yet tested on real data.** The built-in `analysis` options are off by
-default and have only been dry-run tested; an analysis test on a real 25M-pair
-run is in progress. Check the output against your expectations.
+::: {.callout-note}
+**Tested on one real dataset.** The built-in `analysis` options are off by
+default. Each ran and produced output on a 25M-pair mouse library (one dataset,
+one cluster); the results have not been validated biologically. Check the output
+against your expectations.
 :::
 
 **Built-in.** List any of `expected`, `compartments`, `insulation`, `loops`:
