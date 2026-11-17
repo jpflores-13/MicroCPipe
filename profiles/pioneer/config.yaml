@@ -3,13 +3,13 @@
 executor: slurm
 jobs: 100
 ## Upper bound for a rule's `threads`. Without it Snakemake caps `threads` at the CPUs of the
-## launcher job (3 on Pioneer), so `align` ran with 3 threads instead of the 16 set below.
+## launcher job (often only 1-3), so `align` would run with a few threads instead of the 16 set below.
 cores: 100
 latency-wait: 500
 software-deployment-method: conda
 
 default-resources:
-  slurm_account: pjt5_1           # <- your association
+  slurm_account: <account>        # <- your SLURM account/association (`sacctmgr show assoc user=$USER`); delete the line if your site has none
   slurm_partition: batch
   runtime: 4320
   mem_mb: 16000

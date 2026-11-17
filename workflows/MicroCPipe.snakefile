@@ -209,8 +209,16 @@ rule library_complexity:
         extrap = config.get("preseq_extrap", 2.1e9),
     shell:
         """
+        ## preseq cannot extrapolate a very shallow library or one with too few duplicates
+        ## ("sample not sufficiently deep or duplicates removed"). That is a property of the
+        ## data, not a pipeline failure, so it must not block the maps, the dashboard or Merge:
+        ## write an empty table (header only; the dashboard shows "no data") and keep going.
+        : > {log}
         preseq lc_extrap -bam -pe -extrap {params.extrap} -step 1e7 -seg_len 1000000000 \
-            -output {output} {input.bam} 2> {log}
+            -output {output} {input.bam} 2>> {log} || {{
+            echo "WARNING: preseq failed for {wildcards.group} (see {log}); writing an empty table" >&2
+            printf 'TOTAL_READS\tEXPECTED_DISTINCT\tLOWER_0.95CI\tUPPER_0.95CI\n' > {output}
+        }}
         """
 
 ## Per-rule runtime / memory table (scripts/benchmarking.py)

@@ -36,4 +36,4 @@ source "${PROFILE%/}/env.sh"
 env/bin/python3 -m snakemake --unlock -s "${SNAKEFILE}" --cores 1 --configfile "${CONFIG}"
 
 ## Success message
-echo -e "\033[0;32mDirectory unlocked, ready to rerun."
+echo -e "\033[0;32mDirectory unlocked, ready to rerun.\033[0m"
