@@ -2,6 +2,9 @@
 ## Check with `sinfo -s` and `sacctmgr show assoc user=$USER` that the account and partition are yours.
 executor: slurm
 jobs: 100
+## Upper bound for a rule's `threads`. Without it Snakemake caps `threads` at the CPUs of the
+## launcher job (3 on Pioneer), so `align` ran with 3 threads instead of the 16 set below.
+cores: 100
 latency-wait: 500
 software-deployment-method: conda
 

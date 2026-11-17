@@ -90,8 +90,9 @@ rule align:
         tmpdir = OUT + "/{group}/tmp_{run}",
     shell:
         """
+        : > {log}
         mkdir -p {params.tmpdir}
-        bwa mem {params.bwa_flags} -t {threads} {params.fasta} {input.r1} {input.r2} 2> {log} | \
+        bwa mem {params.bwa_flags} -t {threads} {params.fasta} {input.r1} {input.r2} 2>> {log} | \
         pairtools parse --min-mapq {params.mapq} --walks-policy {params.walks} \
             --max-inter-align-gap {params.gap} --nproc-in {threads} --nproc-out {threads} \
             --chroms-path {input.chromsizes} 2>> {log} | \
@@ -116,8 +117,9 @@ rule dedup:
         tmpdir = OUT + "/{group}/tmp_dedup",
     shell:
         """
+        : > {log}
         mkdir -p {params.tmpdir}
-        pairtools merge --tmpdir {params.tmpdir} --nproc {threads} {input} 2> {log} | \
+        pairtools merge --tmpdir {params.tmpdir} --nproc {threads} {input} 2>> {log} | \
         pairtools dedup --nproc-in {threads} --nproc-out {threads} --mark-dups \
             --output-stats {output.stats} --output {output.pairsam} 2>> {log}
         rm -rf {params.tmpdir}
@@ -143,8 +145,9 @@ rule split:
         all_pairs = OUT + "/{group}/{group}_all.pairs.gz",
     shell:
         """
+        : > {log}
         pairtools split --nproc-in {threads} --nproc-out {threads} \
-            --output-pairs {params.all_pairs} --output-sam - {input.pairsam} 2> {log} | \
+            --output-pairs {params.all_pairs} --output-sam - {input.pairsam} 2>> {log} | \
         samtools view -bS -@ {threads} -o {output.bam} - 2>> {log}
         pairtools select '(pair_type=="UU") or (pair_type=="UR") or (pair_type=="RU")' \
             --nproc-in {threads} --nproc-out {threads} -o {output.pairs} {params.all_pairs} 2>> {log}
@@ -167,13 +170,16 @@ rule sort_bam:
         tmp = OUT + "/{group}/tmp_sortbam",
     shell:
         """
+        : > {log}
         mkdir -p {params.tmp}
-        samtools sort -@ {threads} -T {params.tmp}/s -o {output.bam} {input.bam} 2> {log}
+        samtools sort -@ {threads} -T {params.tmp}/s -o {output.bam} {input.bam} 2>> {log}
         samtools index {output.bam} 2>> {log}
         rm -rf {params.tmp}
         """
 
 ## ---- QC ----------------------------------------------------------------------
+## Scripts call $CONDA_PREFIX/bin/python explicitly: on a cluster the launcher's venv bin/ is
+## ahead of the conda env on PATH inside jobs, so a bare `python` is the wrong interpreter.
 rule qc_summary:
     input:
         stats = rules.dedup.output.stats,
@@ -186,7 +192,7 @@ rule qc_summary:
     threads: 1
     conda: ENVS + "/microc_qc.yml"
     shell:
-        "python {workflow.basedir}/../scripts/get_qc.py -p {input.stats} > {output} 2> {log}"
+        "$CONDA_PREFIX/bin/python {workflow.basedir}/../scripts/get_qc.py -p {input.stats} > {output} 2> {log}"
 
 rule library_complexity:
     input:
@@ -221,7 +227,7 @@ rule benchmark_summary:
     params:
         outdir = OUT,
     shell:
-        "python {workflow.basedir}/../scripts/benchmarking.py {params.outdir} > {output}"
+        "$CONDA_PREFIX/bin/python {workflow.basedir}/../scripts/benchmarking.py {params.outdir} > {output}"
 
 ## Static, self-contained QC dashboard (scripts/qc_report.py)
 rule qc_report:
@@ -242,7 +248,7 @@ rule qc_report:
         cfg = workflow.configfiles[0] if workflow.configfiles else "config/MicroCConfig.yaml",
     shell:
         """
-        python {workflow.basedir}/../scripts/qc_report.py --outdir {params.outdir} \
+        $CONDA_PREFIX/bin/python {workflow.basedir}/../scripts/qc_report.py --outdir {params.outdir} \
             --config {params.cfg} --out {output} 2> {log}
         """
 

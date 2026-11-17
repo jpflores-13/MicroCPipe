@@ -32,14 +32,8 @@ PROFILE="${PROFILE:-${MICROC_PROFILE:-$(cfg hpcProfile)}}"
 [[ -f "${PROFILE%/}/env.sh" ]] || { echo "No ${PROFILE%/}/env.sh: set --profile, $MICROC_PROFILE or hpcProfile in ${CONFIG}" >&2; exit 1; }
 source "${PROFILE%/}/env.sh"
 
-## Activate virtual environment
-source env/bin/activate
-
-## Unlock snakemake workflow
-snakemake --unlock -s "${SNAKEFILE}" --cores 1 --configfile "${CONFIG}"
-
-## Deactivate virtual environment
-deactivate
+## Unlock snakemake workflow (venv is not activated; see MicroCPipe.sh)
+env/bin/python3 -m snakemake --unlock -s "${SNAKEFILE}" --cores 1 --configfile "${CONFIG}"
 
 ## Success message
 echo -e "\033[0;32mDirectory unlocked, ready to rerun."

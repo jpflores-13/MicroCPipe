@@ -59,10 +59,12 @@ OUTDIR="${OUTDIR/#\~/$HOME}"
 [[ -f "${PROFILE}/env.sh" ]] || { echo "No ${PROFILE}/env.sh: set --profile, $MICROC_PROFILE or hpcProfile in ${CONFIG}" >&2; exit 1; }
 source "${PROFILE}/env.sh"
 
-## Create and activate virtual environment with requirements
+## Create the virtual environment with Snakemake. It is NOT activated: its bin/ must not be on
+## PATH inside jobs, because conda rewrites the interpreter line of a tool to `/usr/bin/env python3`
+## when the environment's path is longer than Linux's 127-character limit (common on scratch
+## filesystems), and a venv python first on PATH would then run the tool without its packages.
 [ -d env ] || python3 -m venv env
-source env/bin/activate
-python3 -m pip install -q -r config/requirements.txt
+env/bin/python3 -m pip install -q -r config/requirements.txt
 
 ## SLURM job logs (only for profiles that use the SLURM executor)
 EXTRA=()
@@ -73,7 +75,7 @@ if grep -qE "^executor:[[:space:]]*slurm" "${PROFILE}/config.yaml"; then
 fi
 
 ## Execute MicroCPipe snakemake workflow
-snakemake -s workflows/MicroCPipe.snakefile --profile "${PROFILE}" --configfile "${CONFIG}" --rerun-incomplete --keep-going -p "${EXTRA[@]}" "${ARGS[@]}"
+env/bin/python3 -m snakemake -s workflows/MicroCPipe.snakefile --profile "${PROFILE}" --configfile "${CONFIG}" --rerun-incomplete --keep-going -p "${EXTRA[@]}" "${ARGS[@]}"
 
 ## Success message
 echo "Workflow completed successfully!"
