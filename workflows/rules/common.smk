@@ -30,8 +30,8 @@ OUT = outdir()
 ENVS = os.path.join(workflow.basedir, "..", "envs")
 
 
-def format_targets(groups):
-    """Final files for each group, according to config['outputs'] and 'analysis'."""
+def map_targets(groups):
+    """The contact maps requested in config['outputs'] (what QC and benchmarking wait for)."""
     t = []
     for g in groups:
         if "cool" in OUTPUTS:
@@ -40,9 +40,17 @@ def format_targets(groups):
             t.append(f"{OUT}/{g}/{g}.mcool")
         if "hic" in OUTPUTS:
             t.append(f"{OUT}/{g}/{g}.hic")
-        for a in config.get("analysis", []):
-            t.append(f"{OUT}/{g}/analysis/{g}_{a}.done")
     return t
+
+
+def analysis_targets(groups):
+    """Optional downstream analyses requested in config['analysis'] (never block QC)."""
+    return [f"{OUT}/{g}/analysis/{g}_{a}.done" for g in groups for a in config.get("analysis", [])]
+
+
+def format_targets(groups):
+    """Everything `rule all` asks for: the maps plus any optional analyses."""
+    return map_targets(groups) + analysis_targets(groups)
 
 
 ##### Email notifications (see `notify:` in the config) #####

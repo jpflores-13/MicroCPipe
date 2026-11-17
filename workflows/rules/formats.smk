@@ -94,7 +94,7 @@ rule analysis_compartments:
     conda: ENVS + "/microc_cooler.yml"
     params: res = config.get("analysis_resolution", {}).get("compartments", 100000),
             prefix = OUT + "/{group}/analysis/{group}_compartments"
-    shell: "cooltools eigs-cis -o {params.prefix} {input.mcool}::resolutions/{params.res} 2> {log}"
+    shell: "cooltools eigs-cis --ignore-diags 2 -o {params.prefix} {input.mcool}::resolutions/{params.res} 2> {log}"
 
 rule analysis_insulation:
     input: mcool = _mcool
@@ -104,7 +104,7 @@ rule analysis_insulation:
     conda: ENVS + "/microc_cooler.yml"
     params: res = config.get("analysis_resolution", {}).get("insulation", 10000),
             windows = " ".join(str(w) for w in config.get("insulation_windows", [50000, 100000, 200000]))
-    shell: "cooltools insulation -p {threads} -o {output.tsv} {input.mcool}::resolutions/{params.res} {params.windows} 2> {log}"
+    shell: "cooltools insulation --ignore-diags 2 -p {threads} -o {output.tsv} {input.mcool}::resolutions/{params.res} {params.windows} 2> {log}"
 
 rule analysis_loops:
     input: mcool = _mcool
@@ -113,4 +113,4 @@ rule analysis_loops:
     threads: 1
     conda: ENVS + "/microc_mustache.yml"
     params: res = config.get("analysis_resolution", {}).get("loops", 5000)
-    shell: "mustache -f {input.mcool} -r {params.res} -o {output.tsv} 2> {log}"
+    shell: "mustache -f {input.mcool} -r {params.res} -norm weight -o {output.tsv} 2> {log}"

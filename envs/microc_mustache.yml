@@ -1,12 +1,14 @@
 name: microc_mustache
 ## Loop calling (config analysis: [loops]). Kept separate because mustache-hic is a
 ## pip package that compiles C++ code on install; it must not break the core envs.
+## numpy < 2: mustache uses np.array(..., copy=False), which raises an error in NumPy 2.
 channels:
   - conda-forge
   - bioconda
 dependencies:
   - python=3.10
   - pip
+  - numpy<2
   - cooler>=0.9
   - cxx-compiler
   - pip:

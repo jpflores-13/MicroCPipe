@@ -224,7 +224,7 @@ rule library_complexity:
 ## Per-rule runtime / memory table (scripts/benchmarking.py)
 rule benchmark_summary:
     input:
-        format_targets(GROUPS),
+        map_targets(GROUPS),
         qc = [f"{OUT}/{g}/{g}_qc_summary.txt" for g in GROUPS],
         preseq = [f"{OUT}/{g}/{g}_libraryComplexity.txt" for g in GROUPS
                   if config.get("library_complexity", True) and config.get("make_bam", True)],
@@ -243,7 +243,7 @@ rule qc_report:
         stats = expand(OUT + "/{group}/{group}_dedup_stats.txt", group=GROUPS),
         extra = [f"{OUT}/{g}/{g}_libraryComplexity.txt" for g in GROUPS
                  if config.get("library_complexity", True) and config.get("make_bam", True)],
-        formats = format_targets(GROUPS),
+        formats = map_targets(GROUPS),
         bench = OUT + "/benchmarking.tsv",
     output:
         OUT + "/qc/MicroC_qc_report.html",
