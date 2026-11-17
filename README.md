@@ -72,11 +72,74 @@ A rule-by-rule description of the code is in
 The same workflow as a rule graph (every optional output switched on; each box is a rule,
 each arrow a dependency), and the Merge workflow:
 
-![Core workflow rule graph](docs/img/core_rulegraph.svg)
+Core workflow:
 
-![Merge workflow rule graph](docs/img/merge_rulegraph.svg)
+```mermaid
+flowchart TD
+    cool
+    split
+    dedup
+    align
+    mcool
+    hic
+    analysis_expected
+    analysis_compartments
+    analysis_insulation
+    qc_summary
+    library_complexity
+    sort_bam
+    qc_report
+    benchmark_summary
+    split --> cool
+    dedup --> split
+    align --> dedup
+    cool --> mcool
+    split --> hic
+    mcool --> analysis_expected
+    mcool --> analysis_compartments
+    mcool --> analysis_insulation
+    dedup --> qc_summary
+    sort_bam --> library_complexity
+    split --> sort_bam
+    hic --> qc_report
+    analysis_expected --> qc_report
+    mcool --> qc_report
+    benchmark_summary --> qc_report
+    cool --> qc_report
+    analysis_insulation --> qc_report
+    analysis_compartments --> qc_report
+    library_complexity --> qc_report
+    dedup --> qc_report
+    hic --> benchmark_summary
+    analysis_expected --> benchmark_summary
+    mcool --> benchmark_summary
+    cool --> benchmark_summary
+    analysis_insulation --> benchmark_summary
+    analysis_compartments --> benchmark_summary
+    library_complexity --> benchmark_summary
+    qc_summary --> benchmark_summary
+```
 
-*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+Merge workflow:
+
+```mermaid
+flowchart TD
+    cool
+    merge_pairs
+    mcool
+    hic
+    analysis_expected
+    analysis_compartments
+    analysis_insulation
+    merge_pairs --> cool
+    cool --> mcool
+    merge_pairs --> hic
+    mcool --> analysis_expected
+    mcool --> analysis_compartments
+    mcool --> analysis_insulation
+```
+
+*These diagrams were generated from the Snakefiles' rule graphs (SVG copies are in `docs/img/`). If you change a rule, update them by hand.*
 
 A **group** is a set of samplesheet rows that become one library. Rows that
 share the values of the `mergeBy` columns (`Project`, `Cell_Type`, `Bio_Rep`,
