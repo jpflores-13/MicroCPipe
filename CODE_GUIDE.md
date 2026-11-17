@@ -49,8 +49,9 @@ aligned/{run}.pairsam.gz                         (temporary)
 {group}.mcool                                 {group}_libraryComplexity.txt
 {group}.pairs.gz → hic   juicer_tools pre → {group}.hic
 {group}_dedup_stats.txt → qc_summary → {group}_qc_summary.txt
-everything → benchmark_summary → benchmarking.tsv
-everything → qc_report → qc/MicroC_qc_report.html
+maps + QC tables → benchmark_summary → benchmarking.tsv
+maps + QC tables → qc_report → qc/MicroC_qc_report.html
+(optional analysis_* rules read the .mcool but never block QC)
 ```
 
 ### What has been tested
@@ -168,7 +169,7 @@ Rules carry **no** memory, runtime or partition of their own, only
 
 ### `workflows/MicroCPipe.snakefile`: the Core DAG
 
-Text version of the graph: `align` feeds `dedup`; `dedup` feeds `split` and `qc_summary`; `split` feeds `cool`, `hic` and `sort_bam`; `cool` feeds `mcool`; `sort_bam` feeds `library_complexity`; the optional `analysis_*` rules read `mcool`; everything feeds `benchmark_summary` and `qc_report`.
+Text version of the graph: `align` feeds `dedup`; `dedup` feeds `split` and `qc_summary`; `split` feeds `cool`, `hic` and `sort_bam`; `cool` feeds `mcool`; `sort_bam` feeds `library_complexity`; the optional `analysis_*` rules read `mcool` and feed nothing else (so a failing analysis never blocks the dashboard); the maps and QC tables feed `benchmark_summary` and `qc_report`.
 
 ```mermaid
 flowchart TD
@@ -197,23 +198,17 @@ flowchart TD
     dedup --> qc_summary
     sort_bam --> library_complexity
     split --> sort_bam
+    cool --> qc_report
+    dedup --> qc_report
+    library_complexity --> qc_report
     hic --> qc_report
-    analysis_expected --> qc_report
     mcool --> qc_report
     benchmark_summary --> qc_report
-    cool --> qc_report
-    analysis_insulation --> qc_report
-    analysis_compartments --> qc_report
-    library_complexity --> qc_report
-    dedup --> qc_report
-    hic --> benchmark_summary
-    analysis_expected --> benchmark_summary
-    mcool --> benchmark_summary
     cool --> benchmark_summary
-    analysis_insulation --> benchmark_summary
-    analysis_compartments --> benchmark_summary
     library_complexity --> benchmark_summary
     qc_summary --> benchmark_summary
+    hic --> benchmark_summary
+    mcool --> benchmark_summary
 ```
 
 The graph above is the rule graph (one box per rule). For a concrete example, this is the
@@ -395,7 +390,7 @@ The juicer_tools jar used by the `hic` rule (`pre`). Needs Java, provided by
 |------|-------|----------|
 | `microc_align.yml` | `align`, `dedup`, `split`, `sort_bam`, `library_complexity`, `merge_pairs` | bwa, pairtools, samtools, preseq, pairix |
 | `microc_cooler.yml` | `cool`, `mcool`, `analysis_expected`, `analysis_compartments`, `analysis_insulation` | cooler, cooltools |
-| `microc_mustache.yml` | `analysis_loops` | cooler, mustache-hic (pip; compiles C++, so kept apart so it cannot break the core environments) |
+| `microc_mustache.yml` | `analysis_loops` | cooler, mustache-hic (pip; compiles C++, so kept apart so it cannot break the core environments), `numpy<2` (mustache fails under NumPy 2) |
 | `microc_hic.yml` | `hic` | OpenJDK 11 |
 | `microc_qc.yml` | `qc_summary`, `benchmark_summary`, `qc_report` | (conda-forge + bioconda) pandas, numpy, pyyaml, tabulate, plotly, cooler |
 

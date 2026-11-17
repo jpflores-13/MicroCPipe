@@ -152,7 +152,7 @@ are unaffected.
 A table, one row per group and rule, of wall time, peak memory (RSS) and I/O,
 read from the benchmark files. Use it to size your profile: if `hic` or `dedup`
 peaked near its memory limit, raise it before the next, deeper library.
-The same data is in `output/benchmarking.tsv`.
+The same data is in `output/benchmarking.tsv`. The table covers the maps and QC steps; the optional `analysis_*` rules are not waited for, so their timings are in `output/<group>/benchmarks/` and may be missing from the table if they were still running when it was written.
 
 ## Methods
 

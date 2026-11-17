@@ -328,7 +328,8 @@ The same workflow as rule graphs (each box is a rule, each arrow a
 dependency). Text version of the Core graph: `align` feeds `dedup`; `dedup`
 feeds `split` and `qc_summary`; `split` feeds `cool`, `hic` and `sort_bam`;
 `cool` feeds `mcool`; `sort_bam` feeds `library_complexity`; the optional
-`analysis_*` rules read `mcool`; everything feeds `benchmark_summary` and
+`analysis_*` rules read `mcool` and feed nothing else (a failing analysis never
+blocks the dashboard); the maps and QC tables feed `benchmark_summary` and
 `qc_report`.
 
 Core workflow:
@@ -360,23 +361,17 @@ flowchart TD
     dedup --> qc_summary
     sort_bam --> library_complexity
     split --> sort_bam
+    cool --> qc_report
+    dedup --> qc_report
+    library_complexity --> qc_report
     hic --> qc_report
-    analysis_expected --> qc_report
     mcool --> qc_report
     benchmark_summary --> qc_report
-    cool --> qc_report
-    analysis_insulation --> qc_report
-    analysis_compartments --> qc_report
-    library_complexity --> qc_report
-    dedup --> qc_report
-    hic --> benchmark_summary
-    analysis_expected --> benchmark_summary
-    mcool --> benchmark_summary
     cool --> benchmark_summary
-    analysis_insulation --> benchmark_summary
-    analysis_compartments --> benchmark_summary
     library_complexity --> benchmark_summary
     qc_summary --> benchmark_summary
+    hic --> benchmark_summary
+    mcool --> benchmark_summary
 ```
 
 Merge workflow (`merge_pairs` feeds `cool` and `hic`; `cool` feeds `mcool`; the optional `analysis_*` rules read `mcool`):
