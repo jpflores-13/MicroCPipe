@@ -8,7 +8,8 @@ sbatch MicroCPipe.sh
 
 `MicroCPipe.sh` follows the dietJuicer launcher pattern: it sources the
 site's `profiles/<site>/env.sh` (software setup), builds a venv in `env/`
-from `config/requirements.txt`, and runs Snakemake with that site's profile
+from `config/requirements.txt` (without activating it, so it never shadows the conda
+environments' own Python), and runs Snakemake with that site's profile
 (`hpcProfile` in the config, or `$MICROC_PROFILE`, or `--profile`). On
 `profiles/local`, run it with `bash` instead of `sbatch`. Each rule becomes
 its own SLURM job.

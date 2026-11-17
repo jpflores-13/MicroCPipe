@@ -69,6 +69,15 @@ A rule-by-rule description of the code is in
   (pairs.gz from Core)             merge_pairs ── cool ── mcool / hic
 ```
 
+The same workflow as a rule graph (every optional output switched on; each box is a rule,
+each arrow a dependency), and the Merge workflow:
+
+![Core workflow rule graph](docs/img/core_rulegraph.svg)
+
+![Merge workflow rule graph](docs/img/merge_rulegraph.svg)
+
+*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+
 A **group** is a set of samplesheet rows that become one library. Rows that
 share the values of the `mergeBy` columns (`Project`, `Cell_Type`, `Bio_Rep`,
 `Tech_Rep` by default) are one group, and all their sequencing runs are

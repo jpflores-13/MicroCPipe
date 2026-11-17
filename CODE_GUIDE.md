@@ -88,7 +88,12 @@ Identical except for the Snakefile they run. Each:
    under `$MICROC_OUTPUT_ROOT`, else `$PWD`), to know where to put SLURM
    logs.
 4. Sources `profiles/<site>/env.sh`, creates a venv in `env/` if missing,
-   and `pip install`s `config/requirements.txt`.
+   and `pip install`s `config/requirements.txt`. The venv is **not
+   activated**: the launcher calls `env/bin/python3 -m snakemake` directly. If
+   its `bin/` were on `PATH`, tools in conda environments whose path is longer
+   than Linux's 127-character interpreter-line limit (common on scratch
+   filesystems) would run under the venv's Python and fail with `No module
+   named ...`.
 5. If the profile's `config.yaml` has `executor: slurm`, adds
    `--slurm-logdir <outputDir>/logs_slurm` and rate limits.
 6. Runs `snakemake -s workflows/<...>.snakefile --profile <profile>
@@ -153,6 +158,16 @@ Rules carry **no** memory, runtime or partition of their own, only
 
 ### `workflows/MicroCPipe.snakefile`: the Core DAG
 
+![Core workflow rule graph](docs/img/core_rulegraph.svg)
+
+The picture above is the rule graph (one box per rule). For a concrete example, this is the
+job-level graph for the test fixture, three sequencing runs that become two groups: runs of
+the same group fan in at `dedup`, and everything after that is per group.
+
+![Core job graph for the test fixture](docs/img/core_dag.svg)
+
+*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+
 **Samplesheet handling.** Reads `samplesheet` with pandas (all columns as
 strings), checks that `Name`, `Read1`, `Read2`, `Sequencing_Directory`,
 `Seq_Rep` and the `mergeBy` columns exist, builds `R1` / `R2` by joining
@@ -206,6 +221,8 @@ Notes:
 `rules/formats.smk` is included last and uses it.
 
 ### `workflows/MicroCMerge.snakefile`: the Merge DAG
+
+![Merge workflow rule graph](docs/img/merge_rulegraph.svg)
 
 Reads `merge.samplesheet` and `merge.mergeBy` (falling back to the top-level
 `mergeBy`). The samplesheet must have a `pairs` column (path to a Core
@@ -279,6 +296,14 @@ Builds the static dashboard `qc/MicroC_qc_report.html` for all groups under
 It reads the per-group dedup stats, preseq output and benchmarks (see
 `docs/qc.qmd` for each panel). Run by the `qc_report` rule with
 `envs/microc_qc.yml` (pandas, numpy, pyyaml, tabulate, plotly, cooler).
+
+### `scripts/make_dags.sh`
+
+Regenerates the workflow diagrams in `docs/img/` (`core_rulegraph.svg`, `merge_rulegraph.svg`,
+`core_dag.svg`) from the real Snakefiles using `snakemake --rulegraph` / `--dag` and Graphviz
+`dot`, against the dry-run fixture in `tests/dryrun/`. Nothing is executed. Run
+`bash scripts/make_dags.sh` after changing any rule and commit the updated SVGs, so the
+README, this guide and the docs book never drift from the code.
 
 ### `scripts/benchmarking.py`
 
@@ -365,7 +390,7 @@ MicroCPipe/
 ├── config/        MicroCConfig.yaml  requirements.txt
 ├── envs/          microc_{align,cooler,hic,qc}.yml
 ├── profiles/      biowulf  local  longleaf  pioneer  slurm-template
-├── scripts/       get_qc.py  qc_report.py  benchmarking.py  juicer_tools_1.22.01.jar
+├── scripts/       get_qc.py  qc_report.py  benchmarking.py  make_dags.sh  juicer_tools_1.22.01.jar
 ├── workflows/     MicroCPipe.snakefile  MicroCMerge.snakefile  rules/{common,formats}.smk
 ├── tests/         pytest + dry-run fixture (tests/dryrun/)
 └── docs/          Quarto book

@@ -127,6 +127,12 @@ bash MicroCPipe.sh --conda-create-envs-only
 exit
 ```
 
+The dry run builds this graph of jobs for the example: your sequencing runs fan in per group
+at `dedup`, then each group gets its maps, QC table and library-complexity curve, and everything
+feeds the dashboard. This one is the job-level graph for the test fixture (three runs, two groups):
+
+![Job graph for a three-run, two-group example](img/core_dag.svg){fig-alt="Job-level DAG: three align jobs feed two dedup jobs, each followed by split, cool, mcool, hic, sort_bam, library_complexity and qc_summary, all feeding benchmark_summary and qc_report."}
+
 ## Run it
 
 ```bash
@@ -248,6 +254,8 @@ Open Juicebox, choose **File > Open > Local** and select
 `Example_GM12878_1_1.hic`. Pick a normalisation and resolution from the menus.
 
 ## Combining libraries
+
+![Merge workflow rule graph](img/merge_rulegraph.svg){fig-alt="Merge workflow: merge_pairs feeds cool, mcool and hic, plus optional analysis rules."}
 
 Suppose you made a second technical replicate (`Tech_Rep` 2) and ran it
 through the Core workflow too. To merge the two into one deeper map, list

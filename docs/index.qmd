@@ -53,6 +53,13 @@ reference and the pipeline runs the same way.
 A **group** is one library: the samplesheet rows that share the values of
 the `mergeBy` columns. Every output file is named after its group.
 
+The same workflow as a rule graph (every optional output switched on; each box is a rule,
+each arrow a dependency):
+
+![Core workflow rule graph](img/core_rulegraph.svg){fig-alt="Rule graph of the Core workflow: align, dedup, split, cool, mcool, hic, sort_bam, library_complexity, qc_summary, optional analysis rules, benchmark_summary and qc_report."}
+
+*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+
 ## What you get
 
 | File | What it is | Use it for |
