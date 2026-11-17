@@ -1,0 +1,114 @@
+# Troubleshooting
+
+Most problems fall into three groups: a typo in the samplesheet or config
+(caught by the dry run), a cluster setting that differs from the shipped
+profile, or a job that needs more memory or time. This page lists the symptoms
+we have met, why they happen, and what to do. Where a symptom depends on the
+site, the cause is described in general terms; the site we saw it on is given
+only as an example.
+
+## First: how to read the logs
+
+When something fails, work from the outside in.
+
+| Where | What it is | When to look |
+|-------|-----------|--------------|
+| Terminal output (local run) or `MicroCPipe-<jobid>.out` in the folder you ran `sbatch` from | The main Snakemake process: which job failed and with what message | Always first. Search for `Error` or `Failed` |
+| `.snakemake/log/` in the launch folder | The same Snakemake log, one timestamped file per run | When the `.out` file is gone or truncated |
+| `output/<group>/logs/` | One log per job, written by the tools themselves (`<group>_align.log`, `<group>_dedup.log`, `<group>_hic.log`, ...) | When Snakemake names a failed job. Multi-step rules append to one log, so read it from the top |
+| `output/logs_slurm/` | SLURM's own log of each cluster job (cluster profiles only) | When a job died without a tool message (killed for memory or time) |
+| `output/qc/qc_report.log` | Log of the dashboard step | When the dashboard is missing |
+| `output/benchmarking.tsv` | Run time and peak memory per job | When sizing resources |
+
+Useful SLURM commands (replace `<jobid>`):
+
+```bash
+squeue -u $USER                                   # what is running or waiting now
+sacct -j <jobid> --format=JobID,JobName,State,Elapsed,MaxRSS,ReqMem
+sacct -u $USER -S today --format=JobID,JobName%25,State,Elapsed,MaxRSS
+```
+
+**What this means.** In `sacct`, a `State` of `OUT_OF_MEMORY` means the job
+asked for too little memory (raise `mem_mb`), `TIMEOUT` means too little time
+(raise `runtime`, in minutes), and `FAILED` means the tool itself stopped (read
+its log in `output/<group>/logs/`). `MaxRSS` is the memory actually used, to
+compare with `ReqMem`.
+
+After you have fixed the cause:
+
+```bash
+bash unlock.sh            # only needed if Snakemake reports a lock; add --merge for the Merge workflow
+sbatch MicroCPipe.sh      # finished steps are kept; failed ones are redone
+```
+
+## Input and configuration errors
+
+These show up in the dry run (`bash MicroCPipe.sh -n`), before anything is
+submitted.
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `... is missing column(s): [...]` | Header typo, or spaces instead of tabs in the samplesheet | Use tabs and the exact column names; every `mergeBy` column must exist |
+| `resolution N is not a multiple of base_resolution` | A `resolutions` entry the base does not divide | Use multiples of `base_resolution` |
+| `config 'outputs' has unknown format(s)` | Typo in `outputs` | Use `cool`, `mcool`, `hic` |
+| `MissingInputException` naming a FASTQ or `.pairs.gz` | Wrong `Sequencing_Directory`, file name or `pairs` path | Check the path from the machine that runs the job. Relative paths start in the folder you launch from |
+| Group names look wrong, or two groups collide | Odd characters in the `mergeBy` columns | Use letters, digits and underscores only |
+| Output appears in the folder you launched from | `MICROC_OUTPUT_ROOT` was not set in the shell that ran `sbatch` | Add the export to `~/.bashrc`, `source ~/.bashrc`, resubmit |
+| Jobs go to the wrong account or partition | The profile was not the one you meant | `echo $MICROC_PROFILE`; set it or pass `--profile` |
+
+## Cluster and environment problems
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Disk quota exceeded`, often inside `~/.cache/snakemake` | Some clusters give each user a small home-directory quota, and Snakemake, conda and pip write caches there by default | Move the caches to scratch with the standard variables before `sbatch` (below). Also put `outputDir` (or `MICROC_OUTPUT_ROOT`) and your FASTQ/reference data on scratch. If home is already full, clear `~/.cache/pip` |
+| `InvalidArchiveError` mentioning a `pkgs` folder of your conda install | The shared conda package cache is corrupt, often because several conda jobs ran at once and shared one cache | Give the run a private cache with `CONDA_PKGS_DIRS` (below), or run `conda clean --packages --tarballs` when nothing else is using that conda |
+| `No module named pairtools` (or another tool's Python module) | Conda rewrites a tool's first line to `/usr/bin/env python3` when the environment's path is longer than Linux's 127-character limit (common on scratch file systems). If a Python venv is first on `PATH`, that venv's Python runs the tool instead of the conda environment's | Start the pipeline only with `MicroCPipe.sh` / `MicroCMerge.sh` / `unlock.sh`. They deliberately do not activate the venv in `env/`. Do not `source env/bin/activate` before launching, and keep other virtual environments out of `PATH` |
+| `align` runs with 3 threads instead of 16 | Snakemake caps a rule's `threads` at the CPUs of the launcher job unless told otherwise | SLURM profiles set `cores: 100`; keep that line in profiles you copy |
+| Downloads fail on compute nodes with an SSL error (for example curl error 60 when fetching a genome) | Some compute nodes cannot verify certificates or reach the internet | Download references on the login node, then point `fasta` and `chromSizes` at the local copies |
+| `bwa index` crashes with a bus error at the end | Seen once: the crash came at exit after a complete index had been written | Check that the `.sa`, `.bwt` and `.pac` files exist next to the FASTA, and test with a few thousand reads before re-building (indexing a mouse-size genome takes about an hour) |
+| The first run takes a long time before anything is aligned | Each conda environment is built once, on first use | Normal. Later runs reuse them. You can pre-build them: `bash MicroCPipe.sh --conda-create-envs-only` |
+| Launcher `OUT_OF_MEMORY` on the first run | Environments were built inside the small launcher job | Build them once in an interactive job with more memory ([Setup](setup.qmd#conda-environments)) |
+| `Error running conda info` | conda is not on `PATH` | Fix the conda line in `profiles/<site>/env.sh` |
+| Slurm refuses the job: invalid account or partition | The `slurm_account` / `slurm_partition` in the profile are not yours | `sacctmgr show assoc user=$USER` lists your accounts, `sinfo -s` lists partitions; edit `profiles/<site>/config.yaml` |
+| Package conflicts or "not found" when building an environment | Only the conda-forge and bioconda channels are supported | `conda config --set channel_priority strict`; do not add other channels |
+| `preseq` cannot be installed on an Apple Silicon Mac | There is no arm64 build of `preseq` | For a local run use `CONDA_SUBDIR=osx-64 bash MicroCPipe.sh` (needs Rosetta) |
+
+### Moving caches to scratch
+
+`XDG_CACHE_HOME`, `CONDA_PKGS_DIRS` and `PIP_CACHE_DIR` are standard
+variables that programs read to decide where to keep caches. Set them in the
+shell before you submit:
+
+```bash
+export XDG_CACHE_HOME=/path/to/scratch/$USER/cache
+export CONDA_PKGS_DIRS=/path/to/scratch/$USER/conda_pkgs
+export PIP_CACHE_DIR=/path/to/scratch/$USER/pip_cache
+mkdir -p "$XDG_CACHE_HOME" "$CONDA_PKGS_DIRS" "$PIP_CACHE_DIR"
+sbatch MicroCPipe.sh
+```
+
+On most sites `sbatch` passes your current environment on to the job, so the
+variables reach every step. A few sites configure it differently (for example
+with `--export=NONE`), so check your site's documentation if the variables seem
+to be ignored. Putting them in `~/.bashrc` also works.
+
+## Jobs that ran but need more resources
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `hic` job ends `OUT_OF_MEMORY`, or `output/<group>/logs/<group>_hic.log` shows a Java heap error | `hic: mem_mb` in the profile is too small for the library | Raise it; the Java heap follows (85%) unless `javaMem` is set. See [Choosing resources](cluster.qmd#choosing-resources) |
+| `align`, `dedup` or another rule ends `OUT_OF_MEMORY` | Deeper library than the profile assumes | Raise that rule's `mem_mb` in `set-resources:` |
+| A rule ends `TIMEOUT` | `runtime` (minutes) too short | Raise that rule's `runtime`, `bash unlock.sh`, resubmit |
+| Dashboard shows no complexity curve for one sample | Not an error. `preseq` fails on very shallow libraries ("sample not sufficiently deep or duplicates removed"). The pipeline writes a header-only table, warns in `output/<group>/logs/<group>_preseq.log`, and carries on | Nothing to fix; sequence deeper if you need the curve |
+
+## Other
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| Snakemake lock error | A previous run was killed | `bash unlock.sh`, then resubmit |
+| No emails arrive | `mail` missing or blocked | `echo test \| mail -s test $MICROC_EMAIL`; change `notify: command:` |
+| Dashboard did not change after editing `qc_thresholds` | The dashboard step does not notice config edits | `bash MicroCPipe.sh --forcerun qc_report` |
+
+If you are stuck, open an issue on the repository with the failing rule's log
+from `output/<group>/logs/` and the last 30 lines of the Snakemake log. Please
+remove anything private (paths, account names) first.

@@ -57,7 +57,7 @@ FASTA of the reference and a chromosome sizes file ([Setup](setup.qmd)).
 
 `MicroCSamplesheet.txt` is tab-separated, with one row per sequencing run:
 
-```
+```text
 Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  Seq_Rep  Read1                  Read2                  Sequencing_Directory
 GM12878_ctrl_1_1_1  Example  GM12878    Ctrl       1        1         1        MicroC_2M_R1.fastq.gz  MicroC_2M_R2.fastq.gz  /path/to/raw/
 ```
@@ -87,12 +87,19 @@ the same names as the FASTA. Leave the rest at their defaults for a first run.
 Once per cluster, in `~/.bashrc`:
 
 ```bash
-export MICROC_PROFILE=profiles/biowulf          # or longleaf, pioneer, local, your own
-export MICROC_OUTPUT_ROOT=/data/$USER/MicroCPipe  # big files go here
+export MICROC_PROFILE=profiles/mycluster               # your copy of profiles/slurm-template (or profiles/local)
+export MICROC_OUTPUT_ROOT=/path/to/scratch/MicroCPipe  # big files go here
 ```
 
 Then `source ~/.bashrc`, and open `profiles/<site>/config.yaml` to check the
-account and partition are yours ([Cluster Reference](cluster.qmd)).
+account and partition are yours ([Cluster Reference](cluster.qmd#adding-a-new-site)).
+On a laptop, skip this step: the default profile is `profiles/local`, and you
+start the run with `bash MicroCPipe.sh` instead of `sbatch MicroCPipe.sh`.
+
+**What this means.** A *profile* tells Snakemake how to run jobs on your
+machine: on a cluster, which account and partition to ask for; on a laptop,
+just to run everything locally. `MICROC_OUTPUT_ROOT` only decides where the
+(large) results are written.
 
 ## Dry run
 
@@ -112,6 +119,13 @@ rule, twelve in all (including the final `all`):
 | `qc_summary`, `library_complexity` | 1 each |
 | `cool`, `mcool`, `hic` | 1 each |
 | `benchmark_summary`, `qc_report`, `all` | 1 each |
+
+**What this means.** Snakemake prints a table with the columns `job` and
+`count`: one line per kind of step (rule) and how many times it will run, then
+the total. `align` is once per sequencing run (one row of the samplesheet);
+every other step runs once per group. Below the table it prints each job
+and its command; you do not need to read those. The important thing is
+that there is no error and the counts match what you expect.
 
 (A second sequencing row would make it two `align` jobs and still one of
 everything else.) If the dry run stops with a missing-column error, a
@@ -139,14 +153,19 @@ feeds the dashboard. This one is the job-level graph for the test fixture (three
 sbatch MicroCPipe.sh
 ```
 
-Each rule is submitted as its own SLURM job. Watch them with
+Each rule is submitted as its own SLURM job (on `profiles/local` the steps just
+run one after another on your machine). Watch them with
 `squeue -u $USER`; the launcher's own log is `MicroCPipe-<jobid>.out` and
 each job's log is in `$MICROC_OUTPUT_ROOT/output/<group>/logs/`. If you set
 `MICROC_EMAIL` you also get mail when it starts, finishes or fails
 ([Running](running.qmd#email-notifications)).
 
-If something fails, read that job's log, fix the cause (often memory or
-time in the profile), then:
+**What this means.** `squeue` lists your waiting (`PD`) and running (`R`)
+jobs. The first run is slow because each conda environment is built once.
+
+If something fails, read that job's log ([Troubleshooting](troubleshooting.qmd)
+explains where to look), fix the cause (often memory or time in the profile),
+then:
 
 ```bash
 bash unlock.sh
@@ -167,13 +186,20 @@ are) and look at, in this order:
    orientations that settle toward balanced with distance.
 4. **Library complexity**: is more depth worth it?
 
+**What this means.** Each metric cell has a traffic light: PASS (within the
+cut-off), WARN (worth a look) or FAIL (a likely problem). A group's overall
+status is its worst metric. The cut-offs are rules of thumb you can change in
+`qc_thresholds`, not published standards, so judge a new library against your
+own good ones. If a sample has no library-complexity curve, its library was
+probably too shallow for preseq; that is not an error.
+
 [Reading the QC dashboard](qc.qmd) explains each panel and what failure looks
 like. Decide here whether the library is worth analysing before you spend
 time on the maps.
 
 ## Inspecting the outputs
 
-```
+```text
 output/Example_GM12878_1_1/
 ├── Example_GM12878_1_1.pairs.gz
 ├── Example_GM12878_1_1.cool
@@ -184,6 +210,11 @@ output/Example_GM12878_1_1/
 ├── Example_GM12878_1_1_qc_summary.txt
 └── Example_GM12878_1_1_libraryComplexity.txt
 ```
+
+Which file should I open? The `.mcool` for Python, R and HiGlass (it has every
+resolution and balancing weights), the `.hic` for Juicebox, the `.pairs.gz` if
+you want to re-bin or use another tool. The examples below use `10000` (10 kb
+bins); any resolution in your `resolutions` list works.
 
 ### With the cooler command line
 
@@ -261,7 +292,7 @@ Suppose you made a second technical replicate (`Tech_Rep` 2) and ran it
 through the Core workflow too. To merge the two into one deeper map, list
 their pairs in `MicroCMergeSamplesheet.txt`:
 
-```
+```text
 Name              Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  pairs
 GM12878_ctrl_1_1  Example  GM12878    Ctrl       1        1         output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz
 GM12878_ctrl_1_2  Example  GM12878    Ctrl       1        2         output/Example_GM12878_1_2/Example_GM12878_1_2.pairs.gz

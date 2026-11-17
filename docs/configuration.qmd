@@ -58,12 +58,67 @@ Within a group, Core numbers the rows `run1`, `run2`, ... to give each
 alignment job its own ID. In the Merge sheet, repeated `pairs` paths within
 a group are used once.
 
+### Samplesheet columns
+
+Both sheets are tab-separated text files with a header row.
+
+| Sheet | Column | Required? | Meaning |
+|-------|--------|-----------|---------|
+| Core | `Name` | yes | Label for the row; not used in file names |
+| Core | `Read1`, `Read2` | yes | FASTQ file names |
+| Core | `Sequencing_Directory` | yes | Folder holding both files (joined with the file name) |
+| Core | `Seq_Rep` | yes | Sequencing replicate number |
+| Core, Merge | every column named in `mergeBy` | yes | Metadata that defines groups (default `Project`, `Cell_Type`, `Bio_Rep`, `Tech_Rep`; Merge: no `Tech_Rep`) |
+| Merge | `pairs` | yes | Path to a Core `.pairs.gz` |
+| both | any other column (`Condition`, ...) | no | Free-form metadata, ignored by the pipeline |
+
+### How `mergeBy` turns rows into groups and file names
+
+Take this Core samplesheet (columns shortened):
+
+```text
+Name     Project  Cell_Type  Bio_Rep  Tech_Rep  Seq_Rep  Read1
+rowA     Ex       ESC        1        1         1        a_R1.fastq.gz
+rowB     Ex       ESC        1        1         2        b_R1.fastq.gz
+rowC     Ex       ESC        1        2         1        c_R1.fastq.gz
+```
+
+With the default `mergeBy: ['Project', 'Cell_Type', 'Bio_Rep', 'Tech_Rep']`:
+
+| Row | Group (values joined with `_`) | Run ID |
+|-----|--------------------------------|--------|
+| rowA | `Ex_ESC_1_1` | `Ex_ESC_1_1_run1` |
+| rowB | `Ex_ESC_1_1` | `Ex_ESC_1_1_run2` |
+| rowC | `Ex_ESC_1_2` | `Ex_ESC_1_2_run1` |
+
+That gives three `align` jobs, two groups, and two sets of outputs:
+`output/Ex_ESC_1_1/Ex_ESC_1_1.mcool` (rows A and B merged and deduplicated
+together) and `output/Ex_ESC_1_2/Ex_ESC_1_2.mcool`. If you add `Seq_Rep` to
+`mergeBy`, all three rows become separate groups (`Ex_ESC_1_1_1`, ...).
+
+The Merge workflow works the same way on its own sheet, but prefixes the group
+with `merged_`: with `merge: mergeBy: ['Project', 'Cell_Type', 'Bio_Rep']`, the
+Merge rows for `Ex_ESC_1_1` and `Ex_ESC_1_2` (their `pairs` paths) form the
+group `merged_Ex_ESC_1`, written to
+`output/merged_Ex_ESC_1/merged_Ex_ESC_1.mcool`.
+
+Example of a custom samplesheet and grouping:
+
+```yaml
+samplesheet: 'my_samples.txt'
+mergeBy: ['Project', 'Cell_Type', 'Condition', 'Bio_Rep']
+```
+
 ## Compute site and location
 
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `hpcProfile` | `profiles/local` | Profile folder (`env.sh` + `config.yaml`). Overridden by `--profile`, then `$MICROC_PROFILE` |
 | `outputDir` | `output` | Where results go. A relative path is placed under `$MICROC_OUTPUT_ROOT` when set, otherwise under the directory you launch from; an absolute path is used as written |
+
+Example: `hpcProfile: 'profiles/mycluster'` (or leave it and set
+`MICROC_PROFILE`); `outputDir: '/path/to/scratch/MicroCPipe/output'` for an
+absolute location.
 
 ## Reference
 
@@ -72,6 +127,9 @@ a group are used once.
 | `genome` | `hg38` | Assembly label stored in the `.cool` (`cooler cload --assembly`). It does not select a reference |
 | `fasta` | placeholder path | BWA-indexed FASTA for `bwa mem` |
 | `chromSizes` | placeholder path | Two columns (name, length). Used by `pairtools parse` (`--chroms-path`), `cooler` (the bins) and `juicer_tools pre`. Every contig listed becomes part of the maps; chromosome names must match the FASTA |
+
+Example (mouse): `genome: 'mm10'`, `fasta: '/path/to/mm10/BWAIndex/genome.fa'`,
+`chromSizes: '/path/to/mm10.chrom.sizes'`.
 
 ## Email notifications
 
@@ -84,6 +142,10 @@ a group are used once.
 The error message includes the last 40 lines of the Snakemake log.
 Dry runs send nothing, and a failed send is reported on stderr but never
 fails the run. See [Running](running.qmd#email-notifications).
+
+Example: `notify: {email: '', events: ['error'], command: 'sendmail {email}'}`
+sends only failure messages, using `sendmail`. Prefer `export MICROC_EMAIL=...`
+over writing an address into a shared config.
 
 ## Output formats
 
@@ -99,6 +161,13 @@ fails the run. See [Running](running.qmd#email-notifications).
 
 Requesting `mcool` builds the `.cool` first, since `mcool` is made from it.
 
+Examples: `outputs: ['mcool']` (no `.hic`); `resolutions: [1000, 5000, 10000,
+50000, 1000000]`; `hic_resolutions: [5000, 10000, 100000]`; `javaMem: '96g'`
+(keep below the `hic` rule's `mem_mb`).
+
+`javaMem` and `hic: mem_mb` are the first things to raise for a deeper
+library; see [Choosing resources](cluster.qmd#choosing-resources).
+
 ## Alignment and pair parsing
 
 | Key | Default | Passed to |
@@ -107,6 +176,10 @@ Requesting `mcool` builds the `.cool` first, since `mcool` is made from it.
 | `min_mapq` | `40` | `pairtools parse --min-mapq` |
 | `max_inter_align_gap` | `30` | `pairtools parse --max-inter-align-gap` (bp) |
 | `walks_policy` | `5unique` | `pairtools parse --walks-policy` |
+
+Example: `min_mapq: 30` keeps more alignments (a lower value counts more
+reads as uniquely mapped); `bwa_flags: '-5SP -T0'` is the Micro-C standard and
+rarely needs changing.
 
 ## QC
 
@@ -117,6 +190,14 @@ Requesting `mcool` builds the `.cool` first, since `mcool` is made from it.
 | `preseq_extrap` | `2.1e9` | `preseq -extrap`: how far (in reads) to extrapolate |
 | `qc_report` | `true` | Build `output/qc/MicroC_qc_report.html` |
 | `qc_thresholds` | see below | Traffic-light cut-offs for the dashboard |
+
+Example: `library_complexity: false` skips preseq and `qc_report: false` skips
+the dashboard; `make_bam: false` also skips the BAM and preseq.
+
+`library_complexity` never stops the pipeline: if preseq fails on a very
+shallow library, a header-only table is written, a warning goes to the log
+(`output/<group>/logs/<group>_preseq.log`), and the dashboard shows no curve
+for that sample.
 
 ### `qc_thresholds`
 
@@ -142,7 +223,18 @@ from the config file the run was started with (`--configfile`, else
 `config/MicroCConfig.yaml`); after editing, rebuild with
 `bash MicroCPipe.sh --forcerun qc_report`.
 
+Example: to warn earlier about shallow libraries,
+`unique_pairs_million: {direction: higher_is_better, warn: 50, fail: 10}`.
+The list you write **replaces** the shipped one: a metric you leave out is not
+shown or judged, and a metric name the dashboard does not know has no value.
+Copy the whole block from the shipped config and edit numbers.
+
 ## Optional downstream analysis
+
+::: {.callout-warning}
+**Not yet tested on real data.** These options are off by default and have only
+been dry-run tested; an analysis test on a real 25M-pair run is in progress.
+:::
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -154,6 +246,10 @@ The `.mcool` is built as a dependency even when `mcool` is not in `outputs`. `co
 the balanced weights, so keep `balance: true` (see
 [Recipes](recipes.qmd#add-a-downstream-analysis)).
 
+Example: `analysis: ['expected', 'insulation']` with
+`analysis_resolution: {expected: 10000, insulation: 10000}`. `loops` uses its
+own conda environment, `envs/microc_mustache.yml`.
+
 ## Environment variables
 
 | Variable | Used by | Meaning |
@@ -162,3 +258,5 @@ the balanced weights, so keep `balance: true` (see
 | `MICROC_OUTPUT_ROOT` | every rule, launchers | Folder a relative `outputDir` goes under |
 | `MICROC_EMAIL` | both workflows | Notification address; beats `notify.email` |
 | `MICROC_CONDA_ROOT` | `profiles/*/env.sh` | Miniforge install, if not `$HOME/miniforge3` |
+
+Also standard, not MicroCPipe-specific: `XDG_CACHE_HOME`, `CONDA_PKGS_DIRS` and `PIP_CACHE_DIR` move caches off a small home directory ([Troubleshooting](troubleshooting.qmd#moving-caches-to-scratch)).

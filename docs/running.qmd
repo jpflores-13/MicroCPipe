@@ -16,7 +16,7 @@ its own SLURM job.
 
 ## What happens
 
-```
+```text
 align (per sequencing run) ─► dedup (per group) ─► split ─┬─► cool ─► mcool
                                                           ├─► hic
                                                           └─► sort_bam ─► library_complexity
@@ -31,7 +31,7 @@ all of the above ─► benchmark_summary, qc_report
 | `split` | `.pairs.gz` (only unique UU/UR/RU pairs, via `pairtools select`) and an unsorted BAM |
 | `sort_bam` | Sorted, indexed BAM (when `make_bam` is on) |
 | `qc_summary` | Dovetail-style QC table |
-| `library_complexity` | `preseq lc_extrap` |
+| `library_complexity` | `preseq lc_extrap` (non-fatal: on a very shallow library it writes a header-only table and the dashboard shows no curve) |
 | `cool` / `mcool` / `hic` | The contact maps |
 | `analysis_*` | Optional cooltools / mustache |
 | `benchmark_summary` | Runtime / memory table |
@@ -86,7 +86,7 @@ Set an address and the workflow emails you once when it starts, once when it
 finishes, and once if any job fails (not once per job):
 
 ```bash
-export MICROC_EMAIL=you@university.edu   # e.g. in ~/.bashrc
+export MICROC_EMAIL=<your-email>   # e.g. in ~/.bashrc
 ```
 
 The address can also go in `notify: email:` in the config; the environment
@@ -159,15 +159,20 @@ the same as launching again:
 | Per-job run time and memory | `output/{group}/benchmarks/`, and `output/benchmarking.tsv` once the run ends |
 
 ```bash
-squeue -u $USER
+squeue -u $USER                                              # waiting (PD) and running (R) jobs
+sacct -u $USER -S today --format=JobID,JobName%25,State,Elapsed,MaxRSS   # finished jobs, with peak memory
 ```
+
+`State` values to know: `COMPLETED`, `FAILED` (read the job's log),
+`OUT_OF_MEMORY` (raise `mem_mb`), `TIMEOUT` (raise `runtime`). More in
+[Troubleshooting](troubleshooting.qmd).
 
 ## Output structure
 
 Everything is written under `outputDir`: `output/` in the folder you launch
 from by default, or under `$MICROC_OUTPUT_ROOT` when that is set.
 
-```
+```text
 output/
 ├── benchmarking.tsv
 ├── qc/
@@ -189,6 +194,9 @@ output/
 ```
 
 ## Troubleshooting
+
+A longer symptom -> cause -> fix table is in [Troubleshooting](troubleshooting.qmd).
+The short version:
 
 | Symptom | Fix |
 |---------|-----|

@@ -12,7 +12,8 @@ colorlinks: true
 # MicroCPipe code guide
 
 What each part of the codebase does, what it reads and writes, and how the
-steps connect. For running the pipeline, see [`README.md`](README.md).
+steps connect. For running the pipeline, see [`README.md`](README.md); for errors, see
+[`docs/troubleshooting.qmd`](docs/troubleshooting.qmd).
 
 ---
 
@@ -34,7 +35,7 @@ Micro-C guidance.
 
 ### Data flow
 
-```
+```text
 MicroCSamplesheet.txt  (one row per sequencing run)
     ↓  align      bwa mem -5SP -T0 | pairtools parse | pairtools sort
 aligned/{run}.pairsam.gz                         (temporary)
@@ -51,6 +52,13 @@ aligned/{run}.pairsam.gz                         (temporary)
 everything → benchmark_summary → benchmarking.tsv
 everything → qc_report → qc/MicroC_qc_report.html
 ```
+
+### What has been tested
+
+The Core workflow completed all 12 steps on a 25M-pair mouse (mm10) library on
+one SLURM cluster and ran locally on macOS; the Merge workflow completed on two
+replicates. The optional `analysis` rules are off by default and only dry-run
+tested so far. Profiles for other sites are templates that may need small edits.
 
 ### Setup and launch
 
@@ -101,12 +109,14 @@ Identical except for the Snakefile they run. Each:
 
 The `#SBATCH` header makes the launcher itself a small 16 GB, 10-day job;
 each rule becomes its own SLURM job through the Snakemake SLURM executor.
+SLURM profiles set `cores: 100`: without it Snakemake caps a rule's `threads`
+at the launcher job's CPUs, so `align` would run with 3 threads instead of 16.
 On `profiles/local`, run it with `bash` instead of `sbatch`.
 
 ### `unlock.sh`
 
-Sources the site `env.sh`, activates `env/`, and runs
-`snakemake --unlock` on the Core Snakefile (or the Merge one with
+Sources the site `env.sh` and runs `env/bin/python3 -m snakemake --unlock`
+(the venv is not activated) on the Core Snakefile (or the Merge one with
 `--merge`). Run it after a crash, then resubmit the launcher.
 
 ---
@@ -158,15 +168,61 @@ Rules carry **no** memory, runtime or partition of their own, only
 
 ### `workflows/MicroCPipe.snakefile`: the Core DAG
 
-![Core workflow rule graph](docs/img/core_rulegraph.svg)
+Text version of the graph: `align` feeds `dedup`; `dedup` feeds `split` and `qc_summary`; `split` feeds `cool`, `hic` and `sort_bam`; `cool` feeds `mcool`; `sort_bam` feeds `library_complexity`; the optional `analysis_*` rules read `mcool`; everything feeds `benchmark_summary` and `qc_report`.
 
-The picture above is the rule graph (one box per rule). For a concrete example, this is the
+```mermaid
+flowchart TD
+    cool
+    split
+    dedup
+    align
+    mcool
+    hic
+    analysis_expected
+    analysis_compartments
+    analysis_insulation
+    qc_summary
+    library_complexity
+    sort_bam
+    qc_report
+    benchmark_summary
+    split --> cool
+    dedup --> split
+    align --> dedup
+    cool --> mcool
+    split --> hic
+    mcool --> analysis_expected
+    mcool --> analysis_compartments
+    mcool --> analysis_insulation
+    dedup --> qc_summary
+    sort_bam --> library_complexity
+    split --> sort_bam
+    hic --> qc_report
+    analysis_expected --> qc_report
+    mcool --> qc_report
+    benchmark_summary --> qc_report
+    cool --> qc_report
+    analysis_insulation --> qc_report
+    analysis_compartments --> qc_report
+    library_complexity --> qc_report
+    dedup --> qc_report
+    hic --> benchmark_summary
+    analysis_expected --> benchmark_summary
+    mcool --> benchmark_summary
+    cool --> benchmark_summary
+    analysis_insulation --> benchmark_summary
+    analysis_compartments --> benchmark_summary
+    library_complexity --> benchmark_summary
+    qc_summary --> benchmark_summary
+```
+
+The graph above is the rule graph (one box per rule). For a concrete example, this is the
 job-level graph for the test fixture, three sequencing runs that become two groups: runs of
 the same group fan in at `dedup`, and everything after that is per group.
 
 ![Core job graph for the test fixture](docs/img/core_dag.svg)
 
-*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+*Generated from the Snakefiles' rule and job graphs; if you change a rule, update the diagrams by hand.*
 
 **Samplesheet handling.** Reads `samplesheet` with pandas (all columns as
 strings), checks that `Name`, `Read1`, `Read2`, `Sequencing_Directory`,
@@ -181,7 +237,7 @@ strings), checks that `Name`, `Read1`, `Read2`, `Sequencing_Directory`,
 `wildcard_constraints` restrict `{group}` and `{run}` to the real names.
 
 **Targets.** `rule all` asks for `format_targets(GROUPS)`, `qc_targets()`
-and `benchmarking.tsv`. `qc_targets()` is, per group, `{group}_qc_summary.txt`
+and `benchmarking.tsv`. `qc_targets()` is, per group, `{group}_qc_summary.txt`,
 `{group}_mapped.PT.bam` (when `make_bam` is true), and (when both
 `library_complexity` and `make_bam` are true) `{group}_libraryComplexity.txt`, plus the dashboard when `qc_report` is true.
 
@@ -194,12 +250,16 @@ and `benchmarking.tsv`. `qc_targets()` is, per group, `{group}_qc_summary.txt`
 | `split` | group | `pairtools split --output-pairs {group}_all.pairs.gz --output-sam - \| samtools view -b`, then `pairtools select '(pair_type=="UU") or ... "UR" ... "RU"'`, then remove the `_all` file | `{group}.pairs.gz` (unique pairs only), `{group}_unsorted.bam` (temp) |
 | `sort_bam` | group | `samtools sort`, `samtools index` | `{group}_mapped.PT.bam`, `.bai` |
 | `qc_summary` | group | `scripts/get_qc.py -p {stats}` | `{group}_qc_summary.txt` |
-| `library_complexity` | group | `preseq lc_extrap -bam -pe -extrap {preseq_extrap} -step 1e7 -seg_len 1000000000` | `{group}_libraryComplexity.txt` |
+| `library_complexity` | group | `preseq lc_extrap -bam -pe -extrap {preseq_extrap} -step 1e7 -seg_len 1000000000`; if preseq fails (very shallow library) it warns and writes a header-only table | `{group}_libraryComplexity.txt` |
 | `benchmark_summary` | once | `scripts/benchmarking.py {outputDir}` | `benchmarking.tsv` |
 | `qc_report` | once | `scripts/qc_report.py --outdir --config --out` | `qc/MicroC_qc_report.html` |
 
 Notes:
 
+- Multi-step rules (`align`, `dedup`, `split`, `sort_bam`, `library_complexity`)
+  truncate their log once (`: > {log}`) and then append (`2>>`), so the log holds
+  every step. The `qc_*` scripts call `$CONDA_PREFIX/bin/python` explicitly,
+  because a launcher venv earlier on `PATH` would be the wrong interpreter.
 - `align` and the other pairtools rules use `envs/microc_align.yml`;
   `align` uses 16 threads for `bwa`, `pairtools parse` and `sort`, and
   works in a temporary directory `{group}/tmp_{run}` that it deletes.
@@ -222,7 +282,24 @@ Notes:
 
 ### `workflows/MicroCMerge.snakefile`: the Merge DAG
 
-![Merge workflow rule graph](docs/img/merge_rulegraph.svg)
+Text version: `merge_pairs` feeds `cool` and `hic`; `cool` feeds `mcool`; the optional `analysis_*` rules read `mcool`.
+
+```mermaid
+flowchart TD
+    cool
+    merge_pairs
+    mcool
+    hic
+    analysis_expected
+    analysis_compartments
+    analysis_insulation
+    merge_pairs --> cool
+    cool --> mcool
+    merge_pairs --> hic
+    mcool --> analysis_expected
+    mcool --> analysis_compartments
+    mcool --> analysis_insulation
+```
 
 Reads `merge.samplesheet` and `merge.mergeBy` (falling back to the top-level
 `mergeBy`). The samplesheet must have a `pairs` column (path to a Core
@@ -297,14 +374,6 @@ It reads the per-group dedup stats, preseq output and benchmarks (see
 `docs/qc.qmd` for each panel). Run by the `qc_report` rule with
 `envs/microc_qc.yml` (pandas, numpy, pyyaml, tabulate, plotly, cooler).
 
-### `scripts/make_dags.sh`
-
-Regenerates the workflow diagrams in `docs/img/` (`core_rulegraph.svg`, `merge_rulegraph.svg`,
-`core_dag.svg`) from the real Snakefiles using `snakemake --rulegraph` / `--dag` and Graphviz
-`dot`, against the dry-run fixture in `tests/dryrun/`. Nothing is executed. Run
-`bash scripts/make_dags.sh` after changing any rule and commit the updated SVGs, so the
-README, this guide and the docs book never drift from the code.
-
 ### `scripts/benchmarking.py`
 
 Usage: `benchmarking.py OUTDIR > benchmarking.tsv`. Reads every
@@ -325,7 +394,8 @@ The juicer_tools jar used by the `hic` rule (`pre`). Needs Java, provided by
 | File | Rules | Contents |
 |------|-------|----------|
 | `microc_align.yml` | `align`, `dedup`, `split`, `sort_bam`, `library_complexity`, `merge_pairs` | bwa, pairtools, samtools, preseq, pairix |
-| `microc_cooler.yml` | `cool`, `mcool`, `analysis_*` | cooler, cooltools, mustache-hic (pip) |
+| `microc_cooler.yml` | `cool`, `mcool`, `analysis_expected`, `analysis_compartments`, `analysis_insulation` | cooler, cooltools |
+| `microc_mustache.yml` | `analysis_loops` | cooler, mustache-hic (pip; compiles C++, so kept apart so it cannot break the core environments) |
 | `microc_hic.yml` | `hic` | OpenJDK 11 |
 | `microc_qc.yml` | `qc_summary`, `benchmark_summary`, `qc_report` | (conda-forge + bioconda) pandas, numpy, pyyaml, tabulate, plotly, cooler |
 
@@ -348,9 +418,7 @@ Each site has two files.
 
 | Folder | Site |
 |--------|------|
-| `biowulf` | NIH Biowulf (partition `norm`, no account) |
-| `longleaf` | UNC Longleaf |
-| `pioneer` | Case Western Pioneer |
+| `biowulf`, `longleaf`, `pioneer` | Examples for particular sites; account, partition and limits must be edited for your use |
 | `slurm-template` | Copy and fill in the `<...>` values |
 | `local` | One machine, no scheduler |
 
@@ -383,14 +451,14 @@ Each site has two files.
 
 ## Project layout
 
-```
+```text
 MicroCPipe/
 ├── MicroCPipe.sh  MicroCMerge.sh  unlock.sh
 ├── MicroCSamplesheet.txt  MicroCMergeSamplesheet.txt
 ├── config/        MicroCConfig.yaml  requirements.txt
-├── envs/          microc_{align,cooler,hic,qc}.yml
+├── envs/          microc_{align,cooler,hic,mustache,qc}.yml
 ├── profiles/      biowulf  local  longleaf  pioneer  slurm-template
-├── scripts/       get_qc.py  qc_report.py  benchmarking.py  make_dags.sh  juicer_tools_1.22.01.jar
+├── scripts/       get_qc.py  qc_report.py  benchmarking.py  juicer_tools_1.22.01.jar
 ├── workflows/     MicroCPipe.snakefile  MicroCMerge.snakefile  rules/{common,formats}.smk
 ├── tests/         pytest + dry-run fixture (tests/dryrun/)
 └── docs/          Quarto book

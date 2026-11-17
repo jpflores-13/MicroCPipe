@@ -9,6 +9,18 @@ libraries into one deeper map), driven by a samplesheet and a config file,
 and run with Snakemake 8 on a SLURM cluster or on one machine.
 
 ::: {.callout-note}
+**What has been tested.** The Core workflow (FASTQ to maps and QC) completed
+all 12 steps on a 25-million-read-pair mouse embryonic stem cell library (whole
+mm10 genome) on one SLURM cluster, and ran locally on a Mac. The Merge
+workflow completed on two replicates, and the merged map's contacts were
+exactly the sum of the replicates. The optional `analysis` options
+(`expected`, `compartments`, `insulation`, `loops`) are off by default and have
+only been dry-run tested so far; a test on the 25M-pair run is in progress.
+Other sites' profiles are templates that may need small edits; issues and
+pull requests are welcome.
+:::
+
+::: {.callout-note}
 **Included example.** The shipped samplesheet and config describe a single
 placeholder library (`GM12878`, human, hg38) with paths you must replace
 (`/path/to/raw/`, `/path/to/hg38/...`). Swap in your own FASTQ files and
@@ -17,7 +29,7 @@ reference and the pipeline runs the same way.
 
 ## How the pieces fit together
 
-```
+```text
   MicroCSamplesheet.txt                          config/MicroCConfig.yaml
   (one row per sequencing run: metadata,         (reference, mergeBy, outputs,
    Read1, Read2, Sequencing_Directory)            resolutions, QC thresholds)
@@ -58,7 +70,7 @@ each arrow a dependency):
 
 ![Core workflow rule graph](img/core_rulegraph.svg){fig-alt="Rule graph of the Core workflow: align, dedup, split, cool, mcool, hic, sort_bam, library_complexity, qc_summary, optional analysis rules, benchmark_summary and qc_report."}
 
-*Generated from the real Snakefiles by `scripts/make_dags.sh`; re-run it after changing a rule.*
+*Generated from the Snakefiles' rule graph; if you change a rule, update the diagram by hand.*
 
 ## What you get
 
@@ -86,8 +98,9 @@ with traffic lights from `qc_thresholds` in the config. See
 ## Compute sites
 
 Everything specific to a cluster lives in one folder under `profiles/`:
-`biowulf`, `longleaf`, `pioneer`, `slurm-template` (copy it for any other
-SLURM cluster) and `local` (one machine, no scheduler). The profile is
+`local` (one machine, no scheduler), `slurm-template` (copy it for any SLURM
+cluster) and `biowulf`, `longleaf`, `pioneer` (examples for particular sites,
+which still need your account and partition). The profile is
 picked with `--profile`, `$MICROC_PROFILE` or `hpcProfile` in the config.
 See [Cluster Reference](cluster.qmd).
 
@@ -101,8 +114,9 @@ See [Cluster Reference](cluster.qmd).
 | Launch, merge, resume | [Running](running.qmd) |
 | Judge whether a library is good | [Reading the QC dashboard](qc.qmd) |
 | Do something specific (only `.mcool`, mouse, more memory) | [Recipes](recipes.qmd) |
+| Fix an error, or read the logs | [Troubleshooting](troubleshooting.qmd) |
 | Look up a config key | [Configuration](configuration.qmd) |
-| Run on another cluster | [Cluster Reference](cluster.qmd) |
+| Run on another cluster, or choose memory and time | [Cluster Reference](cluster.qmd) |
 
 ## References
 

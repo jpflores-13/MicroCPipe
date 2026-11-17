@@ -20,16 +20,16 @@ first time a rule needs them. The juicer_tools jar ships in `scripts/`.
 `MicroCSamplesheet.txt` is tab-separated, one row per **sequencing run**
 (one pair of FASTQ files). A library sequenced on two lanes has two rows.
 
-| Column | Contents |
-|--------|----------|
-| `Name` | A label for the row (required, but not used in file names) |
-| `Read1`, `Read2` | FASTQ file names |
-| `Sequencing_Directory` | Folder that holds both files (joined with the file name) |
-| `Seq_Rep` | Sequencing replicate number (required column) |
-| every column in `mergeBy` | e.g. `Project`, `Cell_Type`, `Bio_Rep`, `Tech_Rep` |
-| anything else | metadata (`Condition`, ...) |
+| Column | Required? | Contents |
+|--------|-----------|----------|
+| `Name` | yes | A label for the row (not used in file names) |
+| `Read1`, `Read2` | yes | FASTQ file names |
+| `Sequencing_Directory` | yes | Folder that holds both files (joined with the file name) |
+| `Seq_Rep` | yes | Sequencing replicate number |
+| every column in `mergeBy` | yes | e.g. `Project`, `Cell_Type`, `Bio_Rep`, `Tech_Rep` |
+| anything else | no | free-form metadata (`Condition`, ...) |
 
-```
+```text
 Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  Seq_Rep  Read1                  Read2                  Sequencing_Directory
 GM12878_ctrl_1_1_1  Example  GM12878    Ctrl       1        1         1        MicroC_2M_R1.fastq.gz  MicroC_2M_R2.fastq.gz  /path/to/raw/
 ```
@@ -53,7 +53,7 @@ the `mergeBy` columns, and avoid values that make two groups look alike.
 `MicroCMergeSamplesheet.txt` (used only by the Merge workflow) has the
 `mergeBy` columns plus `pairs`: the path to a Core `.pairs.gz`.
 
-```
+```text
 Name                Project  Cell_Type  Condition  Bio_Rep  Tech_Rep  pairs
 GM12878_ctrl_1_1    Example  GM12878    Ctrl       1        1         output/Example_GM12878_1_1/Example_GM12878_1_1.pairs.gz
 GM12878_ctrl_1_2    Example  GM12878    Ctrl       1        2         output/Example_GM12878_1_2/Example_GM12878_1_2.pairs.gz
@@ -102,25 +102,30 @@ See [Configuration](configuration.qmd) for every key.
 
 ## 4. Compute site
 
-Pick your site's profile folder: `profiles/biowulf`, `profiles/longleaf`,
-`profiles/pioneer`, `profiles/local` (no scheduler), or your own copy of
-`profiles/slurm-template`. The config default is `profiles/local`. On a
-cluster, set it once in `~/.bashrc`, together with where output should go:
+A **profile** is a folder under `profiles/` that tells the pipeline how to run
+jobs on your computer. Use `profiles/local` (no scheduler) for a laptop or
+workstation; this is the default. On a SLURM cluster, copy
+`profiles/slurm-template` to `profiles/mycluster` and edit it (the shipped
+`biowulf`, `longleaf` and `pioneer` folders are examples for particular sites
+and also need editing). Then set it once in `~/.bashrc`, together with where
+output should go (a large scratch folder):
 
 ```bash
-echo 'export MICROC_PROFILE=profiles/biowulf' >> ~/.bashrc
-echo 'export MICROC_OUTPUT_ROOT=/data/$USER/MicroCPipe' >> ~/.bashrc
+echo 'export MICROC_PROFILE=profiles/mycluster' >> ~/.bashrc
+echo 'export MICROC_OUTPUT_ROOT=/path/to/scratch/MicroCPipe' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-See [Cluster Reference](cluster.qmd#per-cluster-settings). Also open the
-profile's `config.yaml` and check the account and partition are yours.
+See [Cluster Reference](cluster.qmd#adding-a-new-site) for which keys to
+change and how to find your account and partition (`sacctmgr show assoc
+user=$USER`, `sinfo -s`).
 
 ## 5. Conda environments
 
 Each rule runs in one of four environments in `envs/` (`microc_align`,
 `microc_cooler`, `microc_hic`, `microc_qc`), which Snakemake builds on first
-use. Building them inside the launcher job needs more memory than a login
+use. A fifth, `microc_mustache`, is built only if you turn on the optional
+`loops` analysis. The first run is slow for this reason; later runs reuse them. Building them inside the launcher job needs more memory than a login
 node; build them once on a compute node before the first real run:
 
 ```bash
@@ -138,7 +143,7 @@ space.
 ## 6. Email (optional)
 
 ```bash
-export MICROC_EMAIL=you@university.edu   # e.g. in ~/.bashrc
+export MICROC_EMAIL=<your-email>   # e.g. in ~/.bashrc
 ```
 
 You then get one email when a run starts, finishes, or fails. See
@@ -158,6 +163,8 @@ and prints every job it would run. It runs no tools. See
 
 ## Troubleshooting setup
 
+More symptoms, and how to read logs, are in [Troubleshooting](troubleshooting.qmd).
+
 | Symptom | Likely cause | Fix |
 |---------|--------------|-----|
 | `... is missing column(s): [...]` | Header typo, or spaces instead of tabs | Use tabs and the exact column names |
@@ -167,3 +174,4 @@ and prints every job it would run. It runs no tools. See
 | `bwa` reports it cannot open the index | The FASTA has no BWA index next to it | `bwa index genome.fa` |
 | `Error running conda info` | conda not on `PATH` | Fix the conda line in `profiles/<site>/env.sh` |
 | Launcher `OUT_OF_MEMORY` on the first run | Environments built inside the launcher job | Build them once on a compute node (step 5) |
+| `Disk quota exceeded` | Small home quota used for caches or output | Move caches and output to scratch ([Troubleshooting](troubleshooting.qmd#moving-caches-to-scratch)) |

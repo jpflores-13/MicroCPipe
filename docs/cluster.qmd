@@ -1,5 +1,9 @@
 # Cluster Reference
 
+This page is for setting up MicroCPipe on a new computer or cluster, and for
+choosing how much memory and time to ask for. If you only want to run it on
+a laptop, the default `profiles/local` needs no changes.
+
 ## How jobs are submitted
 
 `sbatch MicroCPipe.sh` starts the launcher job (1 CPU, 16 GB, up to 10
@@ -8,21 +12,27 @@ days; it only schedules work). Inside it, Snakemake uses
 with the threads, memory and time set in the profile. SLURM job logs go to
 `<outputDir>/logs_slurm`. The launcher also carries
 `#SBATCH --mail-type=END,FAIL,TIME_LIMIT_80`; add
-`--mail-user=$MICROC_EMAIL` to the `sbatch` command to direct SLURM's own mail
+`--mail-user=<your-email>` to the `sbatch` command to direct SLURM's own mail
 (see [Running](running.qmd#email-notifications) for the workflow's emails).
 
-## Compute sites
+## Profiles: one folder per site
 
-Everything specific to a compute site lives in one folder under `profiles/`.
-The config and samplesheet are the same on every cluster.
+Everything specific to a computer or cluster lives in one folder under
+`profiles/`. The config and samplesheet are the same on every machine.
 
 | Folder | For |
 |--------|-----|
-| `profiles/biowulf/` | NIH Biowulf (SLURM, no account, partition `norm`) |
-| `profiles/longleaf/` | UNC Longleaf (SLURM) |
-| `profiles/pioneer/` | Case Western Pioneer (SLURM) |
-| `profiles/slurm-template/` | Any other SLURM cluster: copy and fill in the `<...>` values |
-| `profiles/local/` | One machine with no scheduler (a workstation, or an interactive node) |
+| `profiles/local/` | One machine with no scheduler (laptop, workstation, interactive node) |
+| `profiles/biowulf/`, `profiles/longleaf/`, `profiles/pioneer/` | Examples of SLURM site profiles |
+| `profiles/slurm-template/` | The starting point for any other SLURM cluster: copy it and fill in the `<...>` values |
+
+::: {.callout-warning}
+**Edit before use.** Account names, partitions, memory per node, time limits
+and conda setup differ from site to site. The named profiles were written for
+one site each, have not all been exercised end to end with MicroCPipe, and
+contain account names that are not yours. Dry-run first, and watch the first
+library on any new cluster.
+:::
 
 Each folder has two files:
 
@@ -34,45 +44,155 @@ Each folder has two files:
 ## Adding a new site
 
 ```bash
-cp -r profiles/slurm-template profiles/<cluster>
-nano profiles/<cluster>/config.yaml   # slurm_account, slurm_partition
-nano profiles/<cluster>/env.sh        # module loads, or your Miniforge
-echo 'export MICROC_PROFILE=profiles/<cluster>' >> ~/.bashrc
+cp -r profiles/slurm-template profiles/mycluster
+nano profiles/mycluster/config.yaml   # account, partition, limits
+nano profiles/mycluster/env.sh        # how to get python3 + conda
+echo 'export MICROC_PROFILE=profiles/mycluster' >> ~/.bashrc
 source ~/.bashrc
 bash MicroCPipe.sh -n                  # dry run
 sbatch MicroCPipe.sh
 ```
 
-In `config.yaml`:
+### Which keys to change in `config.yaml`
 
-| Part | What to set |
-|------|-------------|
-| `default-resources: slurm_account` | Your SLURM account; delete the line if your cluster has no accounts (`sacctmgr show assoc user=$USER`) |
-| `default-resources: slurm_partition` | A CPU partition (`sinfo -s`) |
-| `set-threads:` | CPUs per rule (`align`, `dedup`, `split`, `sort_bam`, `hic` use 16) |
-| `set-resources:` | `runtime` (minutes) and `mem_mb` per rule |
-| `executor: slurm`, `jobs`, `latency-wait` | Leave unless your scheduler is slow (raise `latency-wait` on slow shared file systems) |
+| Key | What to set |
+|-----|-------------|
+| `executor: slurm` | Leave as is for SLURM clusters |
+| `jobs` | How many cluster jobs may be queued at once (default 100); lower it if your site limits submissions |
+| `cores: 100` | Keep it. Without it Snakemake caps a rule's `threads` at the CPUs of the launcher job, so a rule that asks for 16 threads would run with 3 |
+| `latency-wait` | Seconds to wait for output files to appear. Raise it on slow shared file systems |
+| `default-resources: slurm_account` | Your SLURM account. Delete the line if your site has no accounts |
+| `default-resources: slurm_partition` | A CPU partition you may use |
+| `default-resources: runtime`, `mem_mb` | Defaults for any rule without its own entry. `runtime` is in **minutes**, `mem_mb` in **megabytes** |
+| `set-threads:` | CPUs per rule (`align`, `dedup`, `split`, `sort_bam`, `hic` use 16; lower them if your nodes are small) |
+| `set-resources:` | `runtime` (minutes) and `mem_mb` per rule; keep them below your partition's limits |
 
-Rules carry no resources of their own: the profile is the only place
-threads, memory and time are set. The rule names are `align`, `dedup`,
-`split`, `sort_bam`, `qc_summary`, `library_complexity`, `benchmark_summary`,
-`qc_report`, `merge_pairs`, `cool`, `mcool`, `hic` and the four `analysis_*`
-rules. `hic` needs the most memory; its Java heap is 85% of its `mem_mb` unless
-`javaMem` is set in the config. `--profile profiles/<cluster>` picks a site for one run.
+No GPU or QOS (quality-of-service) setting is needed by this pipeline. If your
+site requires a QOS, add it under `default-resources` using the slurm executor
+plugin's `slurm_extra` key (check the plugin documentation for the exact form).
+
+### Finding your own values
+
+```bash
+sacctmgr show assoc user=$USER format=account%30,partition%20,qos%30   # your accounts
+sinfo -s                                                             # partitions and their time limits
+sinfo -o "%P %m %c"                                                  # partition, memory per node (MB), CPUs per node
+```
+
+Your site's documentation is the authority on node sizes, time limits and
+which partition to use for CPU work. If you are unsure, ask your cluster's
+support team.
+
+### Writing `env.sh`
+
+`env.sh` runs at the start of every launcher and has one job: make `python3`
+(>= 3.11) and `conda` (>= 24.7.1) work. Pick whichever matches your site:
+
+```bash
+# A. Your own Miniforge (what the shipped files do; works almost everywhere)
+source "${MICROC_CONDA_ROOT:-$HOME/miniforge3}/etc/profile.d/conda.sh"
+conda activate base
+
+# B. A module-based site
+module load python/3.11 conda
+source "$(conda info --base)/etc/profile.d/conda.sh"
+conda activate base
+
+# C. Inside an Apptainer / Singularity image that already holds python3 and conda
+#    (run the launcher inside the container; env.sh can then be nearly empty)
+```
+
+Module names (`python/3.11` above) are only an example; use `module avail` to
+see yours. Mamba works too if it provides the `conda` command.
+
+## Choosing resources
+
+### What each rule needs
+
+The profile (not the rule) sets threads, memory and time. The shipped values
+are conservative starting points. The table below is **one example, not a
+benchmark and not an expected value**: 25 million read pairs, whole mouse
+genome (mm10), one library, 16 threads where a rule uses them, on one SLURM
+cluster (node types differ between clusters). Peak memory is `max_rss` from
+Snakemake's benchmark files.
+
+| Rule | Wall time | Peak memory |
+|------|-----------|-------------|
+| `align` (16 threads) | 28 min | about 23 GB |
+| `dedup` | 8 min | not recorded here |
+| `split` | 2 min | not recorded here |
+| `sort_bam` | 0.5 min | not recorded here |
+| `library_complexity` (preseq) | 3 min | not recorded here |
+| `cool` | 0.5 min | not recorded here |
+| `mcool` | 10 min | not recorded here |
+| `hic` | 8 min | about 9 GB |
+
+QC summary of that same run, to show what the dashboard numbers look like (one
+example, not a target): 54% of read pairs mapped, 9% duplicates, 94% of
+non-duplicate pairs cis, 56% cis >= 1 kb, 32% cis >= 10 kb.
+
+**What this means.** For a library of this size the whole Core workflow takes
+well under two hours of compute once the environments exist. Time and memory
+grow with sequencing depth, so check your own `output/benchmarking.tsv` after
+the first library and size the next, deeper one from it.
+
+### Reading your own numbers
+
+After any run, `output/benchmarking.tsv` (and the dashboard's Runtime &
+memory table) lists, per group and rule, the run time (`s`, shown as h:mm:ss)
+and peak memory (`max_rss`, in MB). Compare with what the profile requested:
+
+- If a rule used far less than it asked for, lower `mem_mb` (on a busy cluster,
+  smaller requests start sooner). The shipped `hic` request is much larger than
+  the 9 GB seen in the example, to be safe for deeper libraries.
+- If a rule came close to its request, raise it before the next, deeper
+  library. As a rule of thumb (a suggestion, not a measured rule), request
+  noticeably more than the peak you saw, since deeper libraries use more.
+
+### Raising memory for `hic`, `dedup` and `align`
+
+Edit `profiles/<site>/config.yaml` (memory in MB, time in minutes) and resubmit:
+
+```yaml
+set-resources:
+  hic:
+    mem_mb: 230000     # was 128000
+    runtime: 1440
+  dedup:
+    mem_mb: 96000      # was 48000
+  align:
+    mem_mb: 48000      # was 32000
+```
+
+Check that the number is below the memory of your partition's nodes first
+(`sinfo -o "%P %m"`).
+
+`hic` is the rule most likely to need more memory for a deep library. It runs
+`juicer_tools pre`, a Java program. Its Java heap follows the job's memory:
+`javaMem` in `config/MicroCConfig.yaml` is empty by default, which means 85% of
+`hic: mem_mb`, leaving room for Java's own overhead. If you set `javaMem`
+yourself (for example `'96g'`), keep it below `hic: mem_mb`. If you cannot get
+more memory, drop the finest entries of `hic_resolutions` (the `.mcool` keeps
+them) or skip the `.hic` with `outputs: ['cool', 'mcool']`. A step-by-step
+version is in [Recipes](recipes.qmd#when-the-hic-step-runs-out-of-memory).
+
+After a memory or time failure: `bash unlock.sh` if a lock error appears, then
+resubmit. Finished steps are kept.
 
 ### The local profile
 
 `profiles/local/config.yaml` has no scheduler. It sets `cores: all` and a
-global memory limit (`resources: mem_mb=...`), and its per-rule `mem_mb`
-values are accounting numbers Snakemake uses to avoid running too many
-heavy jobs at once. Start it with `bash MicroCPipe.sh`. Lower the memory
-numbers to fit your machine (the `hic` heap follows its `mem_mb`), and note that a deep library
-may not fit on a workstation at all.
+global memory limit (`resources: mem_mb=64000`), and its per-rule `mem_mb`
+values are accounting numbers Snakemake uses to avoid running too many heavy
+jobs at once. Start it with `bash MicroCPipe.sh`. **Lower these numbers to fit
+your machine**: the shipped `hic` request is 60000 MB, so a laptop with less
+memory should lower both the global limit and `hic: mem_mb` (and, if you set it,
+`javaMem`). A deep library may not fit on a workstation at all.
 
 ## Conda version {#conda-version}
 
 Snakemake 8.27 needs conda >= 24.7.1 for its per-rule environments. Some
-clusters' `conda` modules are older, so the profiles use a Miniforge
+clusters' `conda` modules are older, so the shipped profiles use a Miniforge
 install of your own (about 0.5 GB, one time):
 
 ```bash
@@ -81,7 +201,9 @@ bash Miniforge3-Linux-x86_64.sh -b -p $HOME/miniforge3
 ```
 
 `MICROC_CONDA_ROOT` points `env.sh` at it when it is not at
-`$HOME/miniforge3`.
+`$HOME/miniforge3`. Where the home directory is small, install it on a larger
+file system (for example `/path/to/scratch/miniforge3`) and set
+`MICROC_CONDA_ROOT`.
 
 ## Per-cluster settings
 
@@ -96,52 +218,39 @@ out of git, so the same config and samplesheet run everywhere:
 The profile is chosen by `--profile`, then `$MICROC_PROFILE`, then
 `hpcProfile` in the config (default `profiles/local`). A relative `outputDir`
 goes under `$MICROC_OUTPUT_ROOT`, or under the launch folder if it is unset;
-an absolute `outputDir` is used as written. SLURM jobs inherit the
-environment of the shell that ran `sbatch`, so open a new shell (or
-`source ~/.bashrc`) after editing it.
+an absolute `outputDir` is used as written. On most sites SLURM jobs inherit
+the environment of the shell that ran `sbatch`, so open a new shell (or
+`source ~/.bashrc`) after editing it. A few sites are configured differently;
+check yours.
 
-## NIH Biowulf
+## Site notes (examples)
 
-`profiles/biowulf/` needs no account and uses the `norm` partition.
+These are examples of the kinds of difference you may meet, not instructions
+for your cluster.
 
-- **Memory.** `norm` nodes top out at 247 GB. The profile gives `hic`
-  128 GB; deeper libraries may need more. The profile notes that `bigmem`
-  needs a request of 22 GB or higher; limits change, so check `batchlim`.
-  If you raise `hic: mem_mb`, the heap follows (85%) unless you set `javaMem`.
-- **Partition names.** Verify them with `batchlim` before the first run.
-- **conda.** `env.sh` uses your own Miniforge when `MICROC_CONDA_ROOT`
-  points at one (put it under `/data/$USER`, not the small home quota);
-  otherwise it loads the `conda` module, which may be too old for
-  Snakemake 8.27.
-- **Where to run.** Submit the launcher with `sbatch`, not on the login
-  node. Put `MICROC_OUTPUT_ROOT` on `/data/$USER`: output (BAMs, pairs, `.hic`)
-  is large.
-- **Reference.** An iGenomes BWA index is available on Biowulf under
-  `/fdb/igenomes/` (the repository's earlier default used the NCBI hg38
-  index there); verify the exact path with `ls /fdb/igenomes/`.
-
-::: {.callout-warning}
-**Profile status.** The profiles were adapted from sibling pipelines and not
-all have been exercised end to end with MicroCPipe. Dry-run first, and watch
-the first library on any new cluster.
-:::
-
-## UNC Longleaf and Case Western Pioneer
-
-Both use SLURM accounts: edit `slurm_account` in `config.yaml` to yours
-(`sacctmgr show assoc user=$USER`; the shipped value is a lab placeholder).
-Both ship a Miniforge `env.sh` because the cluster modules are older than
-Snakemake needs. On Pioneer, put code and Miniforge in home and heavy output
-on scratch via `MICROC_OUTPUT_ROOT`.
+- **Accounts.** Some sites need `slurm_account` (the shipped `longleaf` and
+  `pioneer` profiles contain an account name that is not yours; replace it); others have no
+  accounts at all (the `biowulf` profile has none: delete the line).
+- **Partitions and memory.** Nodes in a general partition may top out at a few
+  hundred GB, and "big memory" partitions can have a minimum request. Check
+  your site's limits before raising `hic: mem_mb`.
+- **Small home directories.** Where home has a small quota, put the Miniforge
+  install, caches and output on scratch (see
+  [Troubleshooting](troubleshooting.qmd#moving-caches-to-scratch)).
+- **Old conda modules.** Use your own Miniforge, as above.
+- **Reference genomes.** Some sites provide pre-built BWA indexes; ask your
+  support team where. Otherwise build one with `bwa index genome.fa`.
 
 ## Troubleshooting
+
+See [Troubleshooting](troubleshooting.qmd) for the full table. The ones that
+come up when setting up a cluster:
 
 | Symptom | Fix |
 |---------|-----|
 | `Error running conda info` | conda not on `PATH`: fix the conda line in `profiles/<site>/env.sh` |
-| `hic` killed or Java heap error | Raise `hic: mem_mb` in the profile (the heap is 85% of it unless `javaMem` is set) |
-| A rule ends in `TIMEOUT` | Raise that rule's `runtime:` in the profile, `bash unlock.sh`, resubmit |
-| Jobs on the wrong account or partition | `echo $MICROC_PROFILE`; set it or pass `--profile` |
+| Invalid account or partition | `sacctmgr show assoc user=$USER`, `sinfo -s`; edit the profile |
+| `hic` killed or Java heap error | Raise `hic: mem_mb` in the profile (above) |
+| A rule ends in `TIMEOUT` | Raise that rule's `runtime:` (minutes), `bash unlock.sh`, resubmit |
 | Output in the launch folder, not scratch | `MICROC_OUTPUT_ROOT` not set in the shell that ran `sbatch` |
-| No emails | `echo test \| mail -s test $MICROC_EMAIL`; change `notify: command:` |
 | Launcher `OUT_OF_MEMORY` on first run | Build the environments once on a compute node ([Setup](setup.qmd#conda-environments)) |

@@ -19,6 +19,7 @@ book:
     - running.qmd
     - qc.qmd
     - recipes.qmd
+    - troubleshooting.qmd
     - part: "Under the Hood"
       chapters:
         - configuration.qmd

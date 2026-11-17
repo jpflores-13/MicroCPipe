@@ -50,6 +50,12 @@ sbatch MicroCPipe.sh --configfile config/mouse.yaml
 
 ## Add a downstream analysis
 
+::: {.callout-warning}
+**Not yet tested on real data.** The built-in `analysis` options are off by
+default and have only been dry-run tested; an analysis test on a real 25M-pair
+run is in progress. Check the output against your expectations.
+:::
+
 **Built-in.** List any of `expected`, `compartments`, `insulation`, `loops`:
 
 ```yaml
@@ -65,8 +71,9 @@ insulation_windows: [50000, 100000, 200000]
 Each runs on the `.mcool` at the resolution you set (it must be in
 `resolutions`) and writes into `output/{group}/analysis/`, beside a
 `.done` marker Snakemake tracks. They use the balanced weights, so keep
-`balance: true`. `loops` runs `mustache`, which is installed from pip
-inside `envs/microc_cooler.yml`. Already finished groups only get the new
+`balance: true`. `loops` runs `mustache`, which has its own conda environment
+(`envs/microc_mustache.yml`, built on first use because mustache is a pip
+package that compiles code on install). Already finished groups only get the new
 analysis; nothing is realigned.
 
 **Your own.** The analysis rules live in `workflows/rules/formats.smk`.
@@ -137,7 +144,7 @@ it below `mem_mb`.
     ```
 
    Check the partition's node memory first (`sinfo -o "%P %m"`; see
-   [Biowulf](cluster.qmd#nih-biowulf) for its limits).
+   [Choosing resources](cluster.qmd#choosing-resources)).
 3. **Unlock and rerun:** `bash unlock.sh`, then `sbatch MicroCPipe.sh`.
 4. **Shrink the job** if you cannot get more memory: drop the finest
    entries of `hic_resolutions` (the `.mcool` keeps them), or skip `.hic`

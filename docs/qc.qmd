@@ -140,6 +140,13 @@ preseq counts reads in the BAM.
 `preseq_extrap` in the config sets how far the curve is extrapolated. The
 panel is empty if `library_complexity` is turned off.
 
+**A sample with no curve is not an error.** Very shallow libraries (for
+example a few hundred thousand pairs) make preseq fail with "sample not
+sufficiently deep or duplicates removed". The pipeline then writes a
+header-only table, warns in `output/<group>/logs/<group>_preseq.log`, and the
+dashboard simply shows no curve for that sample. The maps and the other panels
+are unaffected.
+
 ## Runtime and memory
 
 A table, one row per group and rule, of wall time, peak memory (RSS) and I/O,
@@ -167,6 +174,13 @@ thresholds, and describes each plot, so a shared report is self-explanatory.
 A warning is not a verdict: libraries that warn can still be informative at
 coarser resolution. A failure on `cis_ge1kb_pct` or on unique pairs is the
 most consequential for loop-scale analysis.
+
+## Example of what the numbers look like
+
+One example, not an expected value or a published benchmark: a 25-million-read-pair
+mouse embryonic stem cell library (whole mm10 genome) gave 54% of read pairs
+mapped, 9% duplicates, 94% of non-duplicate pairs cis, 56% cis >= 1 kb and 32%
+cis >= 10 kb. Your protocol, cell type and sequencing will differ.
 
 ## Changing thresholds or rebuilding the dashboard
 
